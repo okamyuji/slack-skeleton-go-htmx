@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/hub"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/message"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/render"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/snapshot"
@@ -20,6 +21,7 @@ type Deps struct {
 	Snapshot *snapshot.Service
 	Renderer *render.Renderer
 	Messages *message.Service
+	Hub      *hub.Hub
 }
 
 // NewMux Chapter 5時点でのルーティングを返します。
@@ -37,6 +39,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.HandleFunc("GET /workspaces/{id}/snapshot", snapshotHandler(deps))
 	mux.HandleFunc("POST /channels/{id}/messages", postMessageHandler(deps))
 	mux.HandleFunc("GET /channels/{id}/messages", historyHandler(deps))
+	mux.HandleFunc("GET /ws", wsHandler(deps))
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if deps.Snapshot == nil {
@@ -107,7 +110,7 @@ func postMessageHandler(deps Deps) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		_, duplicate, err := deps.Messages.Send(ctx, message.SendInput{
+		saved, duplicate, err := deps.Messages.Send(ctx, message.SendInput{
 			ChannelID:   channelID,
 			UserID:      currentUserID(r),
 			Body:        body,
@@ -115,9 +118,17 @@ func postMessageHandler(deps Deps) http.HandlerFunc {
 		})
 		switch {
 		case err == nil:
+			// 重複でない新規送信のみHubへ配信します。
 			// 受信は別経路(WebSocket)で行うため、ここでは204を返します。
 			if duplicate {
 				w.Header().Set("X-Duplicate", "1")
+			} else if deps.Hub != nil && deps.Renderer != nil {
+				frag, ferr := fragmentForMessage(deps.Renderer, saved)
+				if ferr != nil {
+					deps.Logger.Warn("fragment render", "err", ferr)
+				} else {
+					deps.Hub.Publish(ctx, channelID, frag)
+				}
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case errors.Is(err, message.ErrInvalidInput):
