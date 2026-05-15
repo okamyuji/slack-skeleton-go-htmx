@@ -1,0 +1,34 @@
+{{define "body"}}
+<aside hx-ext="ws" ws-connect="/ws?channel_ids={{range $i, $c := .Channels}}{{if $i}},{{end}}{{$c.Channel.ID}}{{end}}">
+  <h2>{{.Workspace.Name}}</h2>
+  <p>ようこそ、{{.Me.DisplayName}}さん</p>
+  <h3>チャンネル</h3>
+  {{range .Channels}}
+    <div class="channel">#{{.Channel.Name}}</div>
+  {{end}}
+</aside>
+<main>
+  {{range .Channels}}
+    {{template "channel-section" .}}
+  {{end}}
+</main>
+{{end}}
+
+{{define "channel-section"}}
+<section id="channel-{{.Channel.ID}}">
+  <h3>#{{.Channel.Name}}</h3>
+  <div id="messages-{{.Channel.ID}}">
+    {{range .Messages}}
+      {{template "message" .}}
+    {{end}}
+  </div>
+  <form id="composer-{{.Channel.ID}}"
+        hx-post="/channels/{{.Channel.ID}}/messages"
+        hx-swap="none"
+        hx-on::after-request="this.reset()">
+    <input type="hidden" name="client_msg_id" value="">
+    <textarea name="body" placeholder="メッセージを入力..."></textarea>
+    <button type="submit">送信</button>
+  </form>
+</section>
+{{end}}

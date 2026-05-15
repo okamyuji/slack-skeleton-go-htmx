@@ -1,0 +1,6 @@
+{{define "message"}}
+<div class="message" id="msg-{{.ID}}">
+  <div class="meta">ID:{{.ID}} / {{.CreatedAt.Format "2006-01-02 15:04:05"}}</div>
+  <div class="body">{{.Body}}</div>
+</div>
+{{end}}

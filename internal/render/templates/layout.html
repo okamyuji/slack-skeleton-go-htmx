@@ -1,0 +1,28 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>slack-skeleton-go-htmx</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
+    aside { background: #f1f4f8; padding: 1rem; overflow-y: auto; }
+    main { display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; }
+    h2 { margin-top: 0; }
+    .channel { padding: 0.25rem 0.5rem; cursor: pointer; }
+    .channel.active { background: #4a154b; color: white; border-radius: 4px; }
+    .message { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+    .message .meta { font-size: 0.8rem; color: #666; }
+    #composer { margin-top: 1rem; }
+    #composer textarea { width: 100%; min-height: 4rem; }
+    #toast-area { position: fixed; right: 1rem; bottom: 1rem; display: grid; gap: 0.5rem; }
+    .toast { background: #333; color: white; padding: 0.5rem 1rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+{{template "body" .}}
+<div id="toast-area"></div>
+</body>
+</html>{{end}}
