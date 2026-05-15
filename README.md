@@ -63,8 +63,8 @@ Slack内部の各コンポーネントとの対応です。
 | 2 | `ch02-domain` | ドメイン型、自作マイグレータ、`internal/store`のMySQL接続、testcontainers統合テスト |
 | 3 | `ch03-snapshot` | Snapshotサービス、`html/template`レンダラ、初期画面ハンドラ |
 | 4 | `ch04-send` | POST `/channels/:id/messages`、冪等性、カーソルベース履歴取得、Repositoryインターフェイス |
-| 6 | `ch06-hub-ws` | in-process Hub、`/ws`ハンドラ、HTMLフラグメント配信 |
-| 8 | `ch08-toast` | メンション含むメッセージ受信時の画面内トースト、seedデータ |
+| 5 | `ch05-hub-ws` | in-process Hub、`/ws`ハンドラ、HTMLフラグメント配信 |
+| 6 | `ch06-toast` | メンション含むメッセージ受信時の画面内トースト、seedデータ |
 
 各ブランチには同名のtagも打ってあるので、`git checkout ch04-send`または`git checkout ch04-send`(tag)で章のスナップショットを取り出せます。
 
