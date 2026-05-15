@@ -1,5 +1,5 @@
 // Package main slack-skeleton-go-htmxの起動エントリポイントです。
-// Chapter 1時点では設定読み込みと最小のHTTPサーバー起動のみを担います。
+// Chapter 3時点ではSnapshotサービスまでを配線します。
 package main
 
 import (
@@ -12,6 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/migrate"
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/render"
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/snapshot"
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/store"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/transport"
 )
 
@@ -19,8 +25,17 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	addr := envOr("APP_ADDR", ":8080")
+	dsn := os.Getenv("DB_DSN")
+	migrationsDir := envOr("MIGRATIONS_DIR", "migrations")
 
-	mux := transport.NewMux(logger)
+	deps, cleanup, err := buildDeps(logger, dsn, migrationsDir)
+	if err != nil {
+		logger.Error("init", "err", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	mux := transport.NewMux(deps)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -51,6 +66,42 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("server stopped cleanly")
+}
+
+func buildDeps(logger *slog.Logger, dsn, migrationsDir string) (transport.Deps, func(), error) {
+	r, err := render.New()
+	if err != nil {
+		return transport.Deps{}, func() {}, err
+	}
+	deps := transport.Deps{Logger: logger, Renderer: r}
+	cleanup := func() {}
+
+	if dsn == "" {
+		logger.Warn("DB_DSN未設定。Snapshotは未配線で起動します")
+		return deps, cleanup, nil
+	}
+
+	db, err := store.Open(dsn)
+	if err != nil {
+		return transport.Deps{}, func() {}, err
+	}
+	cleanup = func() { _ = db.Close() }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		cleanup()
+		return transport.Deps{}, func() {}, err
+	}
+	if migrationsDir != "" {
+		if err := migrate.Up(ctx, db, migrationsDir); err != nil {
+			cleanup()
+			return transport.Deps{}, func() {}, err
+		}
+	}
+
+	deps.Snapshot = snapshot.New(store.New(db), 20)
+	return deps, cleanup, nil
 }
 
 func envOr(key, fallback string) string {
