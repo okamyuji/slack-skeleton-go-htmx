@@ -1,0 +1,36 @@
+# Binaries
+bin/
+server
+slack-skeleton-go-htmx
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.cover
+coverage.out
+coverage.html
+
+# Go modules
+vendor/
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Local environment
+.env
+.env.local
+*.local
+
+# Docker volumes
+mysql-data/

@@ -1,0 +1,19 @@
+title = "Slack Skeleton Go htmx — gitleaks config"
+
+# 既定のgitleaksルールを継承します
+[extend]
+useDefault = true
+
+# テスト用ダミー値などgitleaksが誤検知しがちな箇所を許可します
+[allowlist]
+description = "テストフィクスチャや疑似値"
+paths = [
+    '''(?i)^(go\.sum)$''',
+    '''^migrations/0002_seed\.up\.sql$''',
+    '''_test\.go$''',
+]
+
+regexes = [
+    '''X-User-Id:\s*\d+''',
+    '''client_msg_id\s*=\s*['"]demo''',
+]
