@@ -96,6 +96,8 @@ type messageFragmentRenderer interface {
 
 // fragmentForMessage 単一メッセージをHubに流す際のHTMLフラグメントを構築します。
 // hx-swap-oobで対象チャンネルのDOMにbeforeendで挿入されます。
+// 本文に@が含まれる場合は同じ送信payloadにトースト通知フラグメントも結合し、
+// 受信側の全クライアントに画面右下のポップアップを表示します。
 func fragmentForMessage(renderer messageFragmentRenderer, msg domain.Message) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(`<div id="messages-`)
@@ -105,7 +107,21 @@ func fragmentForMessage(renderer messageFragmentRenderer, msg domain.Message) ([
 		return nil, err
 	}
 	buf.WriteString(`</div>`)
+
+	if strings.Contains(msg.Body, "@") {
+		if err := renderer.Render(&buf, "toast", "新着メンション: "+truncate(msg.Body, 60)); err != nil {
+			return nil, err
+		}
+	}
 	return buf.Bytes(), nil
+}
+
+func truncate(s string, n int) string {
+	if len([]rune(s)) <= n {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:n]) + "..."
 }
 
 // 静的にhub.Senderを満たすことを保証します。

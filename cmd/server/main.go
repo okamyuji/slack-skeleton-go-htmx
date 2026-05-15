@@ -1,5 +1,5 @@
 // Package main slack-skeleton-go-htmxの起動エントリポイントです。
-// Chapter 4時点ではSnapshotに加え、Messageサービスを配線します。
+// Chapter 6時点ではSnapshotとMessageに加え、Hubを配線します。
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/hub"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/message"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/migrate"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/render"
@@ -104,6 +105,7 @@ func buildDeps(logger *slog.Logger, dsn, migrationsDir string) (transport.Deps, 
 	s := store.New(db)
 	deps.Snapshot = snapshot.New(s, 20)
 	deps.Messages = message.New(s)
+	deps.Hub = hub.New()
 	return deps, cleanup, nil
 }
 
