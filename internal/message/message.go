@@ -18,6 +18,18 @@ var ErrInvalidInput = errors.New("message: invalid input")
 // ErrNotMember 投稿者がチャンネルに参加していないことを表します。
 var ErrNotMember = errors.New("message: not a member")
 
+// Repository messageサービスが必要とするデータアクセスメソッドを抽象化します。
+// 各層をinterfaceで疎結合に繋ぐことで、テスト時にfakeを差し込みやすくします。
+type Repository interface {
+	IsMember(ctx context.Context, userID, channelID int64) (bool, error)
+	InsertMessage(ctx context.Context, in domain.Message) (domain.Message, error)
+	RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error)
+	MessagesBefore(ctx context.Context, channelID, beforeID int64, limit int) ([]domain.Message, error)
+}
+
+// 静的にstore.StoreがRepositoryを満たすことを保証します。
+var _ Repository = (*store.Store)(nil)
+
 // SendInput 送信時の入力を束ねます。
 type SendInput struct {
 	ChannelID   int64
@@ -28,11 +40,11 @@ type SendInput struct {
 
 // Service messageレイヤの薄いサービスです。
 type Service struct {
-	store *store.Store
+	repo Repository
 }
 
 // New サービスを構築します。
-func New(s *store.Store) *Service { return &Service{store: s} }
+func New(repo Repository) *Service { return &Service{repo: repo} }
 
 // Send 1件のメッセージを保存します。
 // 冪等性キーが既知の組み合わせなら既存メッセージを返します。
@@ -49,7 +61,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool,
 		return domain.Message{}, false, fmt.Errorf("%w: channel/user id", ErrInvalidInput)
 	}
 
-	ok, err := s.store.IsMember(ctx, in.UserID, in.ChannelID)
+	ok, err := s.repo.IsMember(ctx, in.UserID, in.ChannelID)
 	if err != nil {
 		return domain.Message{}, false, fmt.Errorf("send: is member: %w", err)
 	}
@@ -57,7 +69,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool,
 		return domain.Message{}, false, ErrNotMember
 	}
 
-	saved, err := s.store.InsertMessage(ctx, domain.Message{
+	saved, err := s.repo.InsertMessage(ctx, domain.Message{
 		ChannelID:   in.ChannelID,
 		UserID:      in.UserID,
 		Body:        body,
@@ -83,7 +95,7 @@ func (s *Service) History(ctx context.Context, channelID, beforeID int64, limit 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	msgs, err := s.store.MessagesBefore(ctx, channelID, beforeID, limit)
+	msgs, err := s.repo.MessagesBefore(ctx, channelID, beforeID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("history: %w", err)
 	}
@@ -93,7 +105,7 @@ func (s *Service) History(ctx context.Context, channelID, beforeID int64, limit 
 func (s *Service) findExistingByClientMsgID(ctx context.Context, channelID int64, clientMsgID string) (domain.Message, error) {
 	// 同一チャンネル内の最新側から軽くスキャンします。
 	// 本番ではUNIQUEインデックス利用の単発SELECTに置き換える前提です。
-	recent, err := s.store.RecentMessages(ctx, channelID, 100)
+	recent, err := s.repo.RecentMessages(ctx, channelID, 100)
 	if err != nil {
 		return domain.Message{}, err
 	}

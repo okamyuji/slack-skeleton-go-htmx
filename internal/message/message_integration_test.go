@@ -6,11 +6,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/testcontainers/testcontainers-go"
+	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/message"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/migrate"
@@ -19,27 +20,33 @@ import (
 
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("DB_DSN")
-	if dsn == "" {
-		t.Skip("DB_DSNが未設定のためスキップします")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	container, err := tcmysql.Run(ctx, "mysql:8.4",
+		tcmysql.WithDatabase("slack_skeleton"),
+		tcmysql.WithUsername("appuser"),
+		tcmysql.WithPassword("apppass"),
+	)
+	if err != nil {
+		t.Fatalf("testcontainers: %v", err)
 	}
+	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
+	dsn, err := container.ConnectionString(ctx, "parseTime=true", "loc=UTC")
+	if err != nil {
+		t.Fatalf("conn string: %v", err)
+	}
+
 	db, err := store.Open(dsn)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
 	if err := migrate.Up(ctx, db, "../../migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	_, _ = db.Exec("DELETE FROM messages")
-	_, _ = db.Exec("DELETE FROM memberships")
-	_, _ = db.Exec("DELETE FROM channels")
-	_, _ = db.Exec("DELETE FROM users")
-	_, _ = db.Exec("DELETE FROM workspaces")
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
@@ -67,7 +74,7 @@ func seed(t *testing.T, db *sql.DB) (channelID, userID int64) {
 	return
 }
 
-func TestSendInsertsAndIsIdempotent(t *testing.T) {
+func TestSendInsertsAndIsIdempotent_Integration(t *testing.T) {
 	db := openDB(t)
 	channelID, userID := seed(t, db)
 	svc := message.New(store.New(db))
@@ -96,7 +103,7 @@ func TestSendInsertsAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSendRejectsNonMember(t *testing.T) {
+func TestSendRejectsNonMember_Integration(t *testing.T) {
 	db := openDB(t)
 	channelID, _ := seed(t, db)
 	svc := message.New(store.New(db))
@@ -116,7 +123,7 @@ func TestSendRejectsNonMember(t *testing.T) {
 	}
 }
 
-func TestHistoryReturnsLatestFirst(t *testing.T) {
+func TestHistoryReturnsLatestFirst_Integration(t *testing.T) {
 	db := openDB(t)
 	channelID, userID := seed(t, db)
 	svc := message.New(store.New(db))
