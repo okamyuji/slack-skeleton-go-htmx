@@ -1,4 +1,4 @@
-// Package transport はHTTPと(後続章で)WebSocketの配線を担います。
+// Package transport HTTPと(後続章で)WebSocketの配線を担います。
 package transport
 
 import (
@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// NewMux はChapter 1時点でのルーティングを返します。
+// NewMux Chapter 1時点でのルーティングを返します。
 // 現状はヘルスチェックと固定のWelcomeレスポンスのみを提供します。
 func NewMux(logger *slog.Logger) *http.ServeMux {
 	mux := http.NewServeMux()
