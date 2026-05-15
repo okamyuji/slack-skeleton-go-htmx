@@ -60,6 +60,9 @@ jobs:
         with:
           version: v1.61.0
 
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+
       - name: Install gitleaks CLI
         env:
           GITLEAKS_VERSION: "8.21.2"

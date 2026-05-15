@@ -49,6 +49,13 @@ repos:
         types: [go]
         pass_filenames: false
 
+      - id: govulncheck
+        name: govulncheck
+        entry: govulncheck ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
       - id: go-build
         name: go build
         entry: go build ./...

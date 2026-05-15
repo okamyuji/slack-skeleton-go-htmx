@@ -29,6 +29,8 @@ run_step "golangci-lint" golangci-lint run ./...
 
 run_step "gitleaks (リポジトリ走査)" gitleaks detect --redact --verbose --config .gitleaks.toml --no-banner
 
+run_step "govulncheck (脆弱性検査)" govulncheck ./...
+
 INTEGRATION_FLAG=""
 if [ "${WITH_INTEGRATION:-0}" = "1" ]; then
     INTEGRATION_FLAG="-tags=integration"

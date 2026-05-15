@@ -1,7 +1,7 @@
 # Binaries
 bin/
-server
-slack-skeleton-go-htmx
+/server
+/slack-skeleton-go-htmx
 
 # Build artifacts
 *.exe
