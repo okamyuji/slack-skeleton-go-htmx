@@ -21,6 +21,7 @@ import (
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/snapshot"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/store"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/transport"
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/webhook"
 )
 
 func main() {
@@ -105,6 +106,8 @@ func buildDeps(logger *slog.Logger, dsn, migrationsDir string) (transport.Deps, 
 	s := store.New(db)
 	deps.Snapshot = snapshot.New(s, 20)
 	deps.Messages = message.New(s)
+	deps.Webhooks = webhook.New(s, deps.Messages)
+	deps.WebhookAdmin = s
 	deps.Hub = hub.New()
 	return deps, cleanup, nil
 }

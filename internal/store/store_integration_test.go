@@ -215,3 +215,74 @@ func TestStoreDBReturnsHandle(t *testing.T) {
 		t.Fatal("DB(): nil返し")
 	}
 }
+
+func TestWebhookSettingsCRUD(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+
+	workspaceID, _, channelID := seedBasicFixture(t, db)
+	botUserID := seedWebhookBot(t, db, workspaceID, channelID)
+	s := store.New(db)
+	token := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	created, err := s.CreateWebhook(context.Background(), store.CreateWebhookInput{
+		ChannelID: channelID,
+		Token:     token,
+		Label:     "GitHub main",
+		Secret:    "top-secret",
+		BotUserID: botUserID,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.ID == 0 {
+		t.Fatal("created id is zero")
+	}
+
+	settings, err := s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(settings) != 1 {
+		t.Fatalf("settings len=%d", len(settings))
+	}
+	if settings[0].Label != "GitHub main" || settings[0].Token != token || !settings[0].HasSecret {
+		t.Fatalf("settings=%+v", settings[0])
+	}
+
+	if err := s.DeleteWebhook(context.Background(), created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := s.DeleteWebhook(context.Background(), created.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second delete: want ErrNotFound, got %v", err)
+	}
+	settings, err = s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("list after delete: %v", err)
+	}
+	if len(settings) != 0 {
+		t.Fatalf("settings after delete=%+v", settings)
+	}
+}
+
+func seedWebhookBot(t *testing.T, db *sql.DB, workspaceID, channelID int64) int64 {
+	t.Helper()
+	res, err := db.ExecContext(context.Background(),
+		"INSERT INTO users (workspace_id, display_name, is_bot) VALUES (?, ?, ?)",
+		workspaceID,
+		"webhook-bot",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("seed bot: %v", err)
+	}
+	botUserID, _ := res.LastInsertId()
+	if _, err := db.ExecContext(context.Background(),
+		"INSERT INTO memberships (user_id, channel_id) VALUES (?, ?)",
+		botUserID,
+		channelID,
+	); err != nil {
+		t.Fatalf("seed bot membership: %v", err)
+	}
+	return botUserID
+}

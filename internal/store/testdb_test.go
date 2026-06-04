@@ -70,6 +70,7 @@ func openTestDB(t *testing.T) (*sql.DB, func()) {
 
 func resetFixtures(db *sql.DB) {
 	_, _ = db.Exec("DELETE FROM messages")
+	_, _ = db.Exec("DELETE FROM webhooks")
 	_, _ = db.Exec("DELETE FROM memberships")
 	_, _ = db.Exec("DELETE FROM channels")
 	_, _ = db.Exec("DELETE FROM users")

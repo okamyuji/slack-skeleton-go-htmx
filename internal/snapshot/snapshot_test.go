@@ -3,6 +3,7 @@ package snapshot_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,10 +12,12 @@ import (
 )
 
 type fakeReader struct {
-	channels []domain.Channel
-	users    []domain.User
-	recent   map[int64][]domain.Message
-	err      error
+	channels   []domain.Channel
+	users      []domain.User
+	recent     map[int64][]domain.Message
+	webhooks   []domain.WebhookSetting
+	err        error
+	webhookErr error
 }
 
 func (f *fakeReader) ListChannelsByWorkspace(_ context.Context, _ int64) ([]domain.Channel, error) {
@@ -25,6 +28,12 @@ func (f *fakeReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.
 }
 func (f *fakeReader) RecentMessages(_ context.Context, channelID int64, _ int) ([]domain.Message, error) {
 	return f.recent[channelID], f.err
+}
+func (f *fakeReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+	if f.webhookErr != nil {
+		return nil, f.webhookErr
+	}
+	return f.webhooks, f.err
 }
 
 func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
@@ -44,6 +53,13 @@ func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
 				{ID: 1, ChannelID: 10, UserID: 100, Body: "first"},
 			},
 		},
+		webhooks: []domain.WebhookSetting{
+			{
+				Webhook:     domain.Webhook{ID: 20, ChannelID: 10, Token: "tok", Label: "GitHub main"},
+				ChannelName: "general",
+				HasSecret:   true,
+			},
+		},
 	}
 	svc := snapshot.New(r, 20)
 
@@ -61,6 +77,9 @@ func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
 	if view.Me.ID != 100 {
 		t.Fatalf("me.ID: got %d, want 100", view.Me.ID)
 	}
+	if len(view.Webhooks) != 1 || view.Webhooks[0].Label != "GitHub main" {
+		t.Fatalf("webhooks: %+v", view.Webhooks)
+	}
 }
 
 func TestLoadPropagatesReaderError(t *testing.T) {
@@ -70,5 +89,19 @@ func TestLoadPropagatesReaderError(t *testing.T) {
 	svc := snapshot.New(r, 20)
 	if _, err := svc.Load(context.Background(), 1, 1); err == nil {
 		t.Fatal("err: got nil, want non-nil")
+	}
+}
+
+func TestLoadWrapsWebhookReaderError(t *testing.T) {
+	t.Parallel()
+
+	r := &fakeReader{webhookErr: errors.New("boom")}
+	svc := snapshot.New(r, 20)
+	_, err := svc.Load(context.Background(), 1, 1)
+	if err == nil {
+		t.Fatal("err: got nil, want non-nil")
+	}
+	if !strings.HasPrefix(err.Error(), "snapshot: webhooks:") {
+		t.Fatalf("err=%v, want snapshot: webhooks prefix", err)
 	}
 }

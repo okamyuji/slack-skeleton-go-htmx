@@ -26,6 +26,7 @@ func TestRenderPageContainsBody(t *testing.T) {
 	r := newRenderer(t)
 	view := snapshot.View{
 		Workspace: domain.Workspace{ID: 1, Name: "Test"},
+		BaseURL:   "http://localhost:8080",
 		Me:        domain.User{ID: 100, DisplayName: "alice"},
 		Channels: []snapshot.ChannelView{
 			{
@@ -35,13 +36,38 @@ func TestRenderPageContainsBody(t *testing.T) {
 				},
 			},
 		},
+		Webhooks: []domain.WebhookSetting{
+			{
+				Webhook: domain.Webhook{
+					ID:        7,
+					ChannelID: 10,
+					Token:     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					Label:     "GitHub main",
+				},
+				ChannelName: "general",
+				HasSecret:   true,
+			},
+		},
 	}
 	var buf bytes.Buffer
 	if err := r.Render(&buf, "page", view); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"alice", "#general", "hello", "/ws?channel_ids=10"} {
+	for _, want := range []string{
+		"alice",
+		"#general",
+		"hello",
+		"/ws?channel_ids=10",
+		"GitHub連携管理",
+		"GitHub main",
+		"Payload URL",
+		"http://localhost:8080/api/webhooks/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"Content type",
+		"application/json",
+		"Secret configured",
+		"新規Webhookを作成",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q: %s", want, out)
 		}

@@ -17,6 +17,7 @@ type User struct {
 	ID          int64
 	WorkspaceID int64
 	DisplayName string
+	IsBot       bool
 	CreatedAt   time.Time
 }
 
@@ -45,4 +46,28 @@ type Message struct {
 	Body        string
 	ClientMsgID string
 	CreatedAt   time.Time
+}
+
+// Webhook 外部サービスから投稿を受け付けるIncoming Webhookを表します。
+// Secretは通常の参照で漏らさないため、この型には含めません。
+type Webhook struct {
+	ID        int64
+	ChannelID int64
+	Token     string
+	Label     string
+	BotUserID int64
+	CreatedAt time.Time
+}
+
+// WebhookWithSecret 署名検証が必要なサービス層へだけSecretを渡す型です。
+type WebhookWithSecret struct {
+	Webhook
+	Secret string
+}
+
+// WebhookSetting 管理画面に表示するWebhook設定です。
+type WebhookSetting struct {
+	Webhook
+	ChannelName string
+	HasSecret   bool
 }

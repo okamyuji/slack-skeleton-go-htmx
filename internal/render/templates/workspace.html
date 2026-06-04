@@ -8,6 +8,53 @@
   {{end}}
 </aside>
 <main>
+  <section class="integration-panel" aria-labelledby="github-webhook-title">
+    <h3 id="github-webhook-title">GitHub連携管理</h3>
+    <p>GitHubのWebhook設定で <code>push</code> イベントを選び、Payload URLとSecretを登録します。</p>
+    <div class="webhook-grid">
+      {{range .Webhooks}}
+        <article class="webhook-item">
+          <div>
+            <strong>{{.Label}}</strong>
+            <span>#{{.ChannelName}}</span>
+          </div>
+          <dl>
+            <dt>Payload URL</dt>
+            <dd><code>{{$.BaseURL}}/api/webhooks/{{.Token}}</code></dd>
+            <dt>Content type</dt>
+            <dd><code>application/json</code></dd>
+            <dt>Secret</dt>
+            <dd>{{if .HasSecret}}Secret configured{{else}}未設定{{end}}</dd>
+          </dl>
+          <form method="post" action="/admin/webhooks/{{.ID}}/delete">
+            <button type="submit">削除</button>
+          </form>
+        </article>
+      {{else}}
+        <p>Webhookはまだありません。下のフォームからGitHub連携を作成してください。</p>
+      {{end}}
+    </div>
+    <form class="webhook-form" method="post" action="/admin/webhooks">
+      <h4>新規Webhookを作成</h4>
+      <label>
+        投稿先チャンネル
+        <select name="channel_id">
+          {{range .Channels}}
+            <option value="{{.Channel.ID}}">#{{.Channel.Name}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>
+        ラベル
+        <input name="label" value="GitHub push" maxlength="255">
+      </label>
+      <label>
+        GitHub Secret
+        <input name="secret" type="password" maxlength="255" autocomplete="new-password">
+      </label>
+      <button type="submit">作成</button>
+    </form>
+  </section>
   {{range .Channels}}
     {{template "channel-section" .}}
   {{end}}

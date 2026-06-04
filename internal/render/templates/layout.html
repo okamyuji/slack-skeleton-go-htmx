@@ -13,6 +13,24 @@
     h2 { margin-top: 0; }
     .channel { padding: 0.25rem 0.5rem; cursor: pointer; }
     .channel.active { background: #4a154b; color: white; border-radius: 4px; }
+    .integration-panel { border: 1px solid #d7dde7; border-radius: 6px; background: #fff; margin: 1rem 0 1.25rem; padding: 0.875rem; }
+    .integration-panel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .integration-panel p { color: #49566a; margin: 0.35rem 0; }
+    .integration-panel code { background: #eef2f7; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; padding: 0.12rem 0.25rem; }
+    .integration-panel pre { background: #101828; border-radius: 6px; color: #f8fafc; margin: 0.75rem 0 0; overflow-x: auto; padding: 0.75rem; white-space: pre-wrap; }
+    .integration-panel pre code { background: transparent; color: inherit; padding: 0; }
+    .webhook-grid { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+    .webhook-item { border-top: 1px solid #e5e9f0; display: grid; gap: 0.75rem; grid-template-columns: minmax(9rem, 1fr) 2fr auto; padding-top: 0.75rem; }
+    .webhook-item span { color: #667085; display: block; font-size: 0.85rem; margin-top: 0.2rem; }
+    .webhook-item dl { display: grid; gap: 0.25rem 0.75rem; grid-template-columns: 7rem minmax(0, 1fr); margin: 0; }
+    .webhook-item dt { color: #667085; font-size: 0.85rem; }
+    .webhook-item dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .webhook-form { border-top: 1px solid #e5e9f0; display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr 1fr auto; margin-top: 1rem; padding-top: 1rem; }
+    .webhook-form h4 { grid-column: 1 / -1; margin: 0; }
+    .webhook-form label { color: #344054; display: grid; font-size: 0.85rem; gap: 0.25rem; }
+    .webhook-form input, .webhook-form select { border: 1px solid #cfd6e2; border-radius: 4px; font: inherit; padding: 0.45rem 0.55rem; }
+    .webhook-form button, .webhook-item button { align-self: end; border: 0; border-radius: 4px; background: #4a154b; color: #fff; cursor: pointer; font: inherit; padding: 0.5rem 0.75rem; }
+    .webhook-item button { background: #8a1f2d; }
     .message { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
     .message .meta { font-size: 0.8rem; color: #666; }
     #composer { margin-top: 1rem; }
