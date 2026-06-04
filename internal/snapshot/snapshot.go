@@ -38,6 +38,7 @@ func New(reader Reader, recentPerChan int) *Service {
 // View ハンドラやテンプレートに渡すための統合データ型です。
 type View struct {
 	Workspace domain.Workspace
+	BaseURL   string
 	Users     []domain.User
 	Channels  []ChannelView
 	Webhooks  []domain.WebhookSetting

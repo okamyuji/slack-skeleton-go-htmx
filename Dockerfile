@@ -5,7 +5,7 @@
 # go.mod / go.sumだけをコピーして依存だけを先に解決します。
 # ソース変更時もこのレイヤはキャッシュヒットしてビルドが速くなります。
 # ----------------------------------------------------------------------
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.25.11
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS deps
 WORKDIR /src
 

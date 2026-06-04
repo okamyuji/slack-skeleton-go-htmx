@@ -3,6 +3,7 @@ package snapshot_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,11 +12,12 @@ import (
 )
 
 type fakeReader struct {
-	channels []domain.Channel
-	users    []domain.User
-	recent   map[int64][]domain.Message
-	webhooks []domain.WebhookSetting
-	err      error
+	channels   []domain.Channel
+	users      []domain.User
+	recent     map[int64][]domain.Message
+	webhooks   []domain.WebhookSetting
+	err        error
+	webhookErr error
 }
 
 func (f *fakeReader) ListChannelsByWorkspace(_ context.Context, _ int64) ([]domain.Channel, error) {
@@ -28,6 +30,9 @@ func (f *fakeReader) RecentMessages(_ context.Context, channelID int64, _ int) (
 	return f.recent[channelID], f.err
 }
 func (f *fakeReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+	if f.webhookErr != nil {
+		return nil, f.webhookErr
+	}
 	return f.webhooks, f.err
 }
 
@@ -84,5 +89,19 @@ func TestLoadPropagatesReaderError(t *testing.T) {
 	svc := snapshot.New(r, 20)
 	if _, err := svc.Load(context.Background(), 1, 1); err == nil {
 		t.Fatal("err: got nil, want non-nil")
+	}
+}
+
+func TestLoadWrapsWebhookReaderError(t *testing.T) {
+	t.Parallel()
+
+	r := &fakeReader{webhookErr: errors.New("boom")}
+	svc := snapshot.New(r, 20)
+	_, err := svc.Load(context.Background(), 1, 1)
+	if err == nil {
+		t.Fatal("err: got nil, want non-nil")
+	}
+	if !strings.HasPrefix(err.Error(), "snapshot: webhooks:") {
+		t.Fatalf("err=%v, want snapshot: webhooks prefix", err)
 	}
 }

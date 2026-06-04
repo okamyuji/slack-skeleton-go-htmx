@@ -32,6 +32,7 @@ type Deps struct {
 }
 
 type webhookAdmin interface {
+	FindWebhookBotUserIDByChannel(ctx context.Context, channelID int64) (int64, error)
 	CreateWebhook(ctx context.Context, in store.CreateWebhookInput) (domain.Webhook, error)
 	DeleteWebhook(ctx context.Context, id int64) error
 }
@@ -97,14 +98,24 @@ func createWebhookAdminHandler(deps Deps) http.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
+		botUserID, err := deps.WebhookAdmin.FindWebhookBotUserIDByChannel(ctx, channelID)
+		if err != nil {
+			deps.Logger.Error("find webhook bot", "err", err)
+			http.Error(w, "webhook bot not configured", http.StatusInternalServerError)
+			return
+		}
 		_, err = deps.WebhookAdmin.CreateWebhook(ctx, store.CreateWebhookInput{
 			ChannelID: channelID,
 			Token:     token,
 			Label:     label,
 			Secret:    strings.TrimSpace(r.FormValue("secret")),
-			BotUserID: 3,
+			BotUserID: botUserID,
 		})
 		if err != nil {
+			if errors.Is(err, store.ErrDuplicate) {
+				http.Error(w, "webhook already exists", http.StatusConflict)
+				return
+			}
 			deps.Logger.Error("create webhook", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -180,6 +191,8 @@ func webhookHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "signature verification failed", http.StatusUnauthorized)
 		case errors.Is(err, webhook.ErrBadPayload):
 			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, message.ErrInvalidInput):
+			http.Error(w, err.Error(), http.StatusBadRequest)
 		default:
 			deps.Logger.Error("webhook", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -213,10 +226,27 @@ func serveSnapshot(deps Deps, w http.ResponseWriter, r *http.Request, workspaceI
 		http.Error(w, "snapshot load error", http.StatusInternalServerError)
 		return
 	}
+	view.BaseURL = requestBaseURL(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := deps.Renderer.Render(w, "page", view); err != nil {
 		deps.Logger.Error("render", "err", err)
 	}
+}
+
+func requestBaseURL(r *http.Request) string {
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	return strings.TrimRight(scheme+"://"+host, "/")
 }
 
 func postMessageHandler(deps Deps) http.HandlerFunc {

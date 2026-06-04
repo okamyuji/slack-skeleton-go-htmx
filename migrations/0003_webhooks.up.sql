@@ -16,10 +16,25 @@ CREATE TABLE IF NOT EXISTS webhooks (
   CONSTRAINT fk_webhooks_bot FOREIGN KEY (bot_user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-INSERT INTO users (id, workspace_id, display_name, is_bot) VALUES
-  (3, 1, 'webhook-bot', TRUE)
-  ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), is_bot=VALUES(is_bot);
+INSERT INTO users (workspace_id, display_name, is_bot)
+SELECT w.id, 'webhook-bot', TRUE
+  FROM workspaces w
+ WHERE w.id = 1
+   AND NOT EXISTS (
+     SELECT 1 FROM users u
+      WHERE u.workspace_id = w.id
+        AND u.display_name = 'webhook-bot'
+   );
 
-INSERT INTO memberships (user_id, channel_id) VALUES
-  (3, 10), (3, 11), (3, 12)
+UPDATE users
+   SET is_bot = TRUE
+ WHERE workspace_id = 1
+   AND display_name = 'webhook-bot';
+
+INSERT INTO memberships (user_id, channel_id)
+SELECT u.id, c.id
+  FROM users u
+  JOIN channels c ON c.workspace_id = u.workspace_id
+ WHERE u.workspace_id = 1
+   AND u.display_name = 'webhook-bot'
   ON DUPLICATE KEY UPDATE joined_at=joined_at;

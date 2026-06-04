@@ -135,8 +135,16 @@ func newFullDeps(t *testing.T) (transport.Deps, *fakeMessageRepo, *hub.Hub) {
 }
 
 type fakeWebhookAdmin struct {
-	created store.CreateWebhookInput
-	deleted int64
+	created   store.CreateWebhookInput
+	deleted   int64
+	botUserID int64
+}
+
+func (f *fakeWebhookAdmin) FindWebhookBotUserIDByChannel(_ context.Context, _ int64) (int64, error) {
+	if f.botUserID != 0 {
+		return f.botUserID, nil
+	}
+	return 3, nil
 }
 
 func (f *fakeWebhookAdmin) CreateWebhook(_ context.Context, in store.CreateWebhookInput) (domain.Webhook, error) {
@@ -362,11 +370,29 @@ func TestWebhookHandlerBodyTooLarge(t *testing.T) {
 	}
 }
 
+func TestWebhookHandlerInvalidInputReturns400(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{}, deps.Messages)
+
+	tooLong := `{"text":"` + strings.Repeat("x", 4001) + `"}`
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(tooLong))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateWebhookAdminCreatesAndRedirects(t *testing.T) {
 	t.Parallel()
 
 	deps, _, _ := newFullDeps(t)
-	admin := &fakeWebhookAdmin{}
+	admin := &fakeWebhookAdmin{botUserID: 30}
 	deps.WebhookAdmin = admin
 
 	mux := transport.NewMux(deps)
@@ -389,7 +415,7 @@ func TestCreateWebhookAdminCreatesAndRedirects(t *testing.T) {
 	if admin.created.ChannelID != 12 || admin.created.Label != "GitHub main" || admin.created.Secret != "top-secret" {
 		t.Fatalf("created=%+v", admin.created)
 	}
-	if admin.created.BotUserID != 3 {
+	if admin.created.BotUserID != 30 {
 		t.Fatalf("bot user=%d", admin.created.BotUserID)
 	}
 	if len(admin.created.Token) != 64 {

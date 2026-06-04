@@ -26,6 +26,7 @@ func TestRenderPageContainsBody(t *testing.T) {
 	r := newRenderer(t)
 	view := snapshot.View{
 		Workspace: domain.Workspace{ID: 1, Name: "Test"},
+		BaseURL:   "http://localhost:8080",
 		Me:        domain.User{ID: 100, DisplayName: "alice"},
 		Channels: []snapshot.ChannelView{
 			{
@@ -61,7 +62,7 @@ func TestRenderPageContainsBody(t *testing.T) {
 		"GitHub連携管理",
 		"GitHub main",
 		"Payload URL",
-		"/api/webhooks/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"http://localhost:8080/api/webhooks/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		"Content type",
 		"application/json",
 		"Secret configured",

@@ -156,12 +156,40 @@ func (s *Store) ListWebhookSettingsByWorkspace(ctx context.Context, workspaceID 
 	return out, rows.Err()
 }
 
+// FindWebhookBotUserIDByChannel channelと同じworkspaceにいるWebhook用botを返します。
+func (s *Store) FindWebhookBotUserIDByChannel(ctx context.Context, channelID int64) (int64, error) {
+	const q = `SELECT u.id
+	             FROM users u
+	             JOIN channels c ON c.workspace_id = u.workspace_id
+	             JOIN memberships m ON m.user_id = u.id AND m.channel_id = c.id
+	            WHERE c.id = ?
+	              AND u.display_name = 'webhook-bot'
+	              AND u.is_bot = TRUE
+	            LIMIT 1`
+	var id int64
+	err := s.db.QueryRowContext(ctx, q, channelID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("find webhook bot: %w", err)
+	}
+	return id, nil
+}
+
 // CreateWebhook Webhookを作成します。
 func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domain.Webhook, error) {
+	if err := s.validateWebhookBot(ctx, in.BotUserID, in.ChannelID); err != nil {
+		return domain.Webhook{}, err
+	}
 	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id)
 	           VALUES (?, ?, ?, ?, ?)`
 	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID)
 	if err != nil {
+		var mErr *mysql.MySQLError
+		if errors.As(err, &mErr) && mErr.Number == 1062 {
+			return domain.Webhook{}, ErrDuplicate
+		}
 		return domain.Webhook{}, fmt.Errorf("create webhook: %w", err)
 	}
 	id, err := res.LastInsertId()
@@ -176,6 +204,25 @@ func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domai
 		BotUserID: in.BotUserID,
 		CreatedAt: time.Now().UTC(),
 	}, nil
+}
+
+func (s *Store) validateWebhookBot(ctx context.Context, botUserID, channelID int64) error {
+	const q = `SELECT 1
+	             FROM users u
+	             JOIN memberships m ON m.user_id = u.id
+	            WHERE u.id = ?
+	              AND u.is_bot = TRUE
+	              AND m.channel_id = ?
+	            LIMIT 1`
+	var v int
+	err := s.db.QueryRowContext(ctx, q, botUserID, channelID).Scan(&v)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("validate webhook bot: %w", err)
+	}
+	return nil
 }
 
 // DeleteWebhook Webhookを削除します。
