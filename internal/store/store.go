@@ -17,6 +17,9 @@ import (
 // ErrDuplicate 冪等性キーの一意制約に違反したことを表します。
 var ErrDuplicate = errors.New("store: duplicate")
 
+// ErrNotFound 指定された条件に一致するレコードが存在しないことを表します。
+var ErrNotFound = errors.New("store: not found")
+
 // Open DSNからMySQLへの接続を開きます。
 // 設定は最小限で、本記事の範囲では本番チューニングを行いません。
 func Open(dsn string) (*sql.DB, error) {
@@ -33,6 +36,15 @@ func Open(dsn string) (*sql.DB, error) {
 // Store クエリの集合を1つに束ねた薄いリポジトリです。
 type Store struct {
 	db *sql.DB
+}
+
+// CreateWebhookInput Webhook作成に必要な値です。
+type CreateWebhookInput struct {
+	ChannelID int64
+	Token     string
+	Label     string
+	Secret    string
+	BotUserID int64
 }
 
 // New DBハンドルを保持したStoreを返します。
@@ -65,7 +77,7 @@ func (s *Store) ListChannelsByWorkspace(ctx context.Context, workspaceID int64) 
 
 // ListUsersByWorkspace 対象Workspaceのユーザーを表示名順で返します。
 func (s *Store) ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]domain.User, error) {
-	const q = `SELECT id, workspace_id, display_name, created_at
+	const q = `SELECT id, workspace_id, display_name, is_bot, created_at
 	             FROM users
 	            WHERE workspace_id = ?
 	            ORDER BY display_name ASC`
@@ -77,12 +89,109 @@ func (s *Store) ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]
 	var out []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.WorkspaceID, &u.DisplayName, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.WorkspaceID, &u.DisplayName, &u.IsBot, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// FindWebhookWithSecret tokenに対応するWebhookをSecret込みで取得します。
+func (s *Store) FindWebhookWithSecret(ctx context.Context, token string) (domain.WebhookWithSecret, error) {
+	const q = `SELECT id, channel_id, token, label, secret, bot_user_id, created_at
+	             FROM webhooks
+	            WHERE token = ?`
+	var wh domain.WebhookWithSecret
+	err := s.db.QueryRowContext(ctx, q, token).Scan(
+		&wh.ID,
+		&wh.ChannelID,
+		&wh.Token,
+		&wh.Label,
+		&wh.Secret,
+		&wh.BotUserID,
+		&wh.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.WebhookWithSecret{}, ErrNotFound
+		}
+		return domain.WebhookWithSecret{}, fmt.Errorf("find webhook: %w", err)
+	}
+	return wh, nil
+}
+
+// ListWebhookSettingsByWorkspace workspace配下のWebhook管理表示用一覧を返します。
+func (s *Store) ListWebhookSettingsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.WebhookSetting, error) {
+	const q = `SELECT w.id, w.channel_id, w.token, w.label, w.bot_user_id, w.created_at,
+	                  c.name,
+	                  CASE WHEN w.secret <> '' THEN TRUE ELSE FALSE END
+	             FROM webhooks w
+	             JOIN channels c ON c.id = w.channel_id
+	            WHERE c.workspace_id = ?
+	            ORDER BY w.created_at DESC, w.id DESC`
+	rows, err := s.db.QueryContext(ctx, q, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list webhook settings: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []domain.WebhookSetting
+	for rows.Next() {
+		var wh domain.WebhookSetting
+		if err := rows.Scan(
+			&wh.ID,
+			&wh.ChannelID,
+			&wh.Token,
+			&wh.Label,
+			&wh.BotUserID,
+			&wh.CreatedAt,
+			&wh.ChannelName,
+			&wh.HasSecret,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, wh)
+	}
+	return out, rows.Err()
+}
+
+// CreateWebhook Webhookを作成します。
+func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domain.Webhook, error) {
+	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id)
+	           VALUES (?, ?, ?, ?, ?)`
+	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID)
+	if err != nil {
+		return domain.Webhook{}, fmt.Errorf("create webhook: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return domain.Webhook{}, fmt.Errorf("last id: %w", err)
+	}
+	return domain.Webhook{
+		ID:        id,
+		ChannelID: in.ChannelID,
+		Token:     in.Token,
+		Label:     in.Label,
+		BotUserID: in.BotUserID,
+		CreatedAt: time.Now().UTC(),
+	}, nil
+}
+
+// DeleteWebhook Webhookを削除します。
+func (s *Store) DeleteWebhook(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete webhook: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete webhook rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // RecentMessages channelIDの直近メッセージをid降順で最大limit件返します。

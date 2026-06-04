@@ -14,6 +14,7 @@ import (
 type Reader interface {
 	ListChannelsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.Channel, error)
 	ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]domain.User, error)
+	ListWebhookSettingsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.WebhookSetting, error)
 	RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error)
 }
 
@@ -39,6 +40,7 @@ type View struct {
 	Workspace domain.Workspace
 	Users     []domain.User
 	Channels  []ChannelView
+	Webhooks  []domain.WebhookSetting
 	Me        domain.User
 }
 
@@ -58,6 +60,10 @@ func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, 
 	users, err := s.reader.ListUsersByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return View{}, fmt.Errorf("snapshot: users: %w", err)
+	}
+	webhooks, err := s.reader.ListWebhookSettingsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return View{}, fmt.Errorf("snapshot: webhooks: %w", err)
 	}
 
 	var me domain.User
@@ -85,6 +91,7 @@ func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, 
 		Workspace: domain.Workspace{ID: workspaceID},
 		Users:     users,
 		Channels:  cvs,
+		Webhooks:  webhooks,
 		Me:        me,
 	}, nil
 }

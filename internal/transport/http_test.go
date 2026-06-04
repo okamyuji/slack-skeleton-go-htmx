@@ -2,6 +2,9 @@ package transport_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,12 +22,14 @@ import (
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/snapshot"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/store"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/transport"
+	"github.com/okamyuji/slack-skeleton-go-htmx/internal/webhook"
 )
 
 type stubReader struct {
 	channels []domain.Channel
 	users    []domain.User
 	recent   map[int64][]domain.Message
+	webhooks []domain.WebhookSetting
 }
 
 func (s *stubReader) ListChannelsByWorkspace(_ context.Context, _ int64) ([]domain.Channel, error) {
@@ -35,6 +40,9 @@ func (s *stubReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.
 }
 func (s *stubReader) RecentMessages(_ context.Context, channelID int64, _ int) ([]domain.Message, error) {
 	return s.recent[channelID], nil
+}
+func (s *stubReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+	return s.webhooks, nil
 }
 
 // fakeMessageRepo はmessage.Repositoryを満たすin-memoryダブルです。
@@ -124,6 +132,21 @@ func newFullDeps(t *testing.T) (transport.Deps, *fakeMessageRepo, *hub.Hub) {
 		Hub:      h,
 	}
 	return deps, repo, h
+}
+
+type fakeWebhookAdmin struct {
+	created store.CreateWebhookInput
+	deleted int64
+}
+
+func (f *fakeWebhookAdmin) CreateWebhook(_ context.Context, in store.CreateWebhookInput) (domain.Webhook, error) {
+	f.created = in
+	return domain.Webhook{ID: 1, ChannelID: in.ChannelID, Token: in.Token, Label: in.Label, BotUserID: in.BotUserID}, nil
+}
+
+func (f *fakeWebhookAdmin) DeleteWebhook(_ context.Context, id int64) error {
+	f.deleted = id
+	return nil
 }
 
 func TestPostMessageRequiresClientMsgID(t *testing.T) {
@@ -228,6 +251,216 @@ func TestPostMessageMarksDuplicateOnSecondSend(t *testing.T) {
 	if second.Header().Get("X-Duplicate") != "1" {
 		t.Fatalf("X-Duplicateが付いていません")
 	}
+}
+
+func TestWebhookHandlerSuccess204(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(`{"text":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.stored) != 1 || repo.stored[0].Body != "hello" {
+		t.Fatalf("stored=%+v", repo.stored)
+	}
+}
+
+func TestWebhookHandlerNotFound404(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t)
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{err: store.ErrNotFound}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/missing", strings.NewReader(`{"text":"hello"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWebhookHandlerBadBody400(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(`{`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWebhookHandlerUnauthorized401(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{secret: "top-secret"}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(`{"text":"hello"}`))
+	req.Header.Set("X-Hub-Signature-256", "sha256=bad")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWebhookHandlerAcceptsValidSignature(t *testing.T) {
+	t.Parallel()
+
+	body := `{"text":"hello"}`
+	secret := "top-secret"
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{secret: secret}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", signWebhookBody(secret, []byte(body)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWebhookHandlerBodyTooLarge(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{3, 12}] = true
+	deps.Webhooks = webhook.New(&fakeWebhookLookup{}, deps.Messages)
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(strings.Repeat("x", 1<<20+1)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateWebhookAdminCreatesAndRedirects(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t)
+	admin := &fakeWebhookAdmin{}
+	deps.WebhookAdmin = admin
+
+	mux := transport.NewMux(deps)
+	form := url.Values{
+		"channel_id": {"12"},
+		"label":      {"GitHub main"},
+		"secret":     {"top-secret"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/webhooks", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Location") != "/" {
+		t.Fatalf("Location=%q", rec.Header().Get("Location"))
+	}
+	if admin.created.ChannelID != 12 || admin.created.Label != "GitHub main" || admin.created.Secret != "top-secret" {
+		t.Fatalf("created=%+v", admin.created)
+	}
+	if admin.created.BotUserID != 3 {
+		t.Fatalf("bot user=%d", admin.created.BotUserID)
+	}
+	if len(admin.created.Token) != 64 {
+		t.Fatalf("token len=%d token=%q", len(admin.created.Token), admin.created.Token)
+	}
+}
+
+func TestCreateWebhookAdminRejectsInvalidChannel(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t)
+	deps.WebhookAdmin = &fakeWebhookAdmin{}
+
+	mux := transport.NewMux(deps)
+	form := url.Values{"channel_id": {"0"}, "label": {"GitHub main"}}
+	req := httptest.NewRequest(http.MethodPost, "/admin/webhooks", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", rec.Code)
+	}
+}
+
+func TestDeleteWebhookAdminDeletesAndRedirects(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t)
+	admin := &fakeWebhookAdmin{}
+	deps.WebhookAdmin = admin
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/admin/webhooks/42/delete", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if admin.deleted != 42 {
+		t.Fatalf("deleted=%d", admin.deleted)
+	}
+}
+
+type fakeWebhookLookup struct {
+	secret string
+	err    error
+}
+
+func (f *fakeWebhookLookup) FindWebhookWithSecret(_ context.Context, token string) (domain.WebhookWithSecret, error) {
+	if f.err != nil {
+		return domain.WebhookWithSecret{}, f.err
+	}
+	return domain.WebhookWithSecret{
+		Webhook: domain.Webhook{
+			ID:        1,
+			ChannelID: 12,
+			Token:     token,
+			Label:     "dev",
+			BotUserID: 3,
+			CreatedAt: time.Now().UTC(),
+		},
+		Secret: f.secret,
+	}, nil
+}
+
+func signWebhookBody(secret string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func TestHistoryHandlerReturnsRenderedMessages(t *testing.T) {

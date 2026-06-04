@@ -215,3 +215,48 @@ func TestStoreDBReturnsHandle(t *testing.T) {
 		t.Fatal("DB(): nil返し")
 	}
 }
+
+func TestWebhookSettingsCRUD(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+
+	workspaceID, botUserID, channelID := seedBasicFixture(t, db)
+	s := store.New(db)
+	token := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	created, err := s.CreateWebhook(context.Background(), store.CreateWebhookInput{
+		ChannelID: channelID,
+		Token:     token,
+		Label:     "GitHub main",
+		Secret:    "top-secret",
+		BotUserID: botUserID,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.ID == 0 {
+		t.Fatal("created id is zero")
+	}
+
+	settings, err := s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(settings) != 1 {
+		t.Fatalf("settings len=%d", len(settings))
+	}
+	if settings[0].Label != "GitHub main" || settings[0].Token != token || !settings[0].HasSecret {
+		t.Fatalf("settings=%+v", settings[0])
+	}
+
+	if err := s.DeleteWebhook(context.Background(), created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	settings, err = s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("list after delete: %v", err)
+	}
+	if len(settings) != 0 {
+		t.Fatalf("settings after delete=%+v", settings)
+	}
+}

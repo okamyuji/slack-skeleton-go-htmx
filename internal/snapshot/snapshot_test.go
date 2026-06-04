@@ -14,6 +14,7 @@ type fakeReader struct {
 	channels []domain.Channel
 	users    []domain.User
 	recent   map[int64][]domain.Message
+	webhooks []domain.WebhookSetting
 	err      error
 }
 
@@ -25,6 +26,9 @@ func (f *fakeReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.
 }
 func (f *fakeReader) RecentMessages(_ context.Context, channelID int64, _ int) ([]domain.Message, error) {
 	return f.recent[channelID], f.err
+}
+func (f *fakeReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+	return f.webhooks, f.err
 }
 
 func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
@@ -44,6 +48,13 @@ func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
 				{ID: 1, ChannelID: 10, UserID: 100, Body: "first"},
 			},
 		},
+		webhooks: []domain.WebhookSetting{
+			{
+				Webhook:     domain.Webhook{ID: 20, ChannelID: 10, Token: "tok", Label: "GitHub main"},
+				ChannelName: "general",
+				HasSecret:   true,
+			},
+		},
 	}
 	svc := snapshot.New(r, 20)
 
@@ -60,6 +71,9 @@ func TestLoadReturnsSortedMessagesAscending(t *testing.T) {
 	}
 	if view.Me.ID != 100 {
 		t.Fatalf("me.ID: got %d, want 100", view.Me.ID)
+	}
+	if len(view.Webhooks) != 1 || view.Webhooks[0].Label != "GitHub main" {
+		t.Fatalf("webhooks: %+v", view.Webhooks)
 	}
 }
 
