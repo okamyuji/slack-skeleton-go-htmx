@@ -34,3 +34,9 @@ vendor/
 
 # Docker volumes
 mysql-data/
+
+# Design documents (local only)
+docs/
+
+# Playwright MCP artifacts
+.playwright-mcp/
