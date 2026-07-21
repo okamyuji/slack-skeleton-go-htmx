@@ -75,6 +75,19 @@ func (s *Store) ListChannelsByWorkspace(ctx context.Context, workspaceID int64) 
 	return out, rows.Err()
 }
 
+// FindWorkspaceName Workspaceの表示名を返します。
+func (s *Store) FindWorkspaceName(ctx context.Context, workspaceID int64) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = ?`, workspaceID).Scan(&name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("find workspace: %w", err)
+	}
+	return name, nil
+}
+
 // ListChannelsForUser 対象Workspaceのうち、userが参加しているチャンネルだけを名前順で返します。
 // Snapshotや購読の読み取り境界はこのMembership結合で導出します。
 func (s *Store) ListChannelsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.Channel, error) {

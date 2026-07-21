@@ -12,6 +12,7 @@ import (
 
 // Reader Snapshotサービスが必要とする読み出しメソッドだけを抽象化します。
 type Reader interface {
+	FindWorkspaceName(ctx context.Context, workspaceID int64) (string, error)
 	ListChannelsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.Channel, error)
 	ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]domain.User, error)
 	ListWebhookSettingsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.WebhookSetting, error)
@@ -55,6 +56,10 @@ type ChannelView struct {
 // チャンネル一覧はmeUserIDが参加しているものだけに絞り、読み取り境界を投稿側と揃えます。
 // 全チャンネルの直近メッセージを取得するため、本来はキャッシュ層を介す前提です。
 func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, error) {
+	workspaceName, err := s.reader.FindWorkspaceName(ctx, workspaceID)
+	if err != nil {
+		return View{}, fmt.Errorf("snapshot: workspace: %w", err)
+	}
 	channels, err := s.reader.ListChannelsForUser(ctx, workspaceID, meUserID)
 	if err != nil {
 		return View{}, fmt.Errorf("snapshot: channels: %w", err)
@@ -91,7 +96,7 @@ func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, 
 	}
 
 	return View{
-		Workspace: domain.Workspace{ID: workspaceID},
+		Workspace: domain.Workspace{ID: workspaceID, Name: workspaceName},
 		Users:     users,
 		Channels:  cvs,
 		Webhooks:  webhooks,

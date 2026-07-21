@@ -34,6 +34,9 @@ type stubReader struct {
 	webhooks []domain.WebhookSetting
 }
 
+func (s *stubReader) FindWorkspaceName(_ context.Context, _ int64) (string, error) {
+	return "Demo Workspace", nil
+}
 func (s *stubReader) ListChannelsForUser(_ context.Context, _, _ int64) ([]domain.Channel, error) {
 	return s.channels, nil
 }

@@ -132,8 +132,9 @@ func fragmentForMessage(renderer messageFragmentRenderer, msg domain.Message) ([
 	}
 	buf.WriteString(`</div>`)
 
+	// ラベルはトーストのテンプレート側が持つため、ここでは本文だけを渡します。
 	if strings.Contains(msg.Body, "@") {
-		if err := renderer.Render(&buf, "toast", "新着メンション: "+truncate(msg.Body, 60)); err != nil {
+		if err := renderer.Render(&buf, "toast", truncate(msg.Body, 80)); err != nil {
 			return nil, err
 		}
 	}

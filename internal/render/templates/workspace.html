@@ -1,100 +1,118 @@
 {{define "body"}}
-<aside hx-ext="ws" ws-connect="/ws?channel_ids={{range $i, $c := .Channels}}{{if $i}},{{end}}{{$c.Channel.ID}}{{end}}">
-  <h2>{{.Workspace.Name}}</h2>
-  <p>ようこそ、{{.Me.DisplayName}}さん</p>
-  <h3>チャンネル</h3>
-  {{range .Channels}}
-    <div class="channel">#{{.Channel.Name}}</div>
-  {{end}}
-</aside>
-<main>
-  <section class="integration-panel" aria-labelledby="github-webhook-title">
-    <h3 id="github-webhook-title">GitHub連携管理</h3>
-    <p>GitHubのWebhook設定で <code>push</code> イベントを選び、Payload URLとSecretを登録します。</p>
-    <div class="webhook-grid">
-      {{range .Webhooks}}
-        <article class="webhook-item">
-          <div>
-            <strong>{{.Label}}</strong>
-            <span>#{{.ChannelName}}</span>
-          </div>
-          <dl>
-            <dt>Payload URL</dt>
-            <dd><code>{{$.BaseURL}}/api/webhooks/{{.Token}}</code></dd>
-            <dt>Content type</dt>
-            <dd><code>application/json</code></dd>
-            <dt>Secret</dt>
-            <dd>{{if .HasSecret}}Secret configured{{else}}未設定{{end}}</dd>
-          </dl>
-          <form method="post" action="/admin/webhooks/{{.ID}}/delete">
-            <button type="submit">削除</button>
-          </form>
-        </article>
-      {{else}}
-        <p>Webhookはまだありません。下のフォームからGitHub連携を作成してください。</p>
+<div class="app" hx-ext="ws" ws-connect="/ws?channel_ids={{range $i, $c := .Channels}}{{if $i}},{{end}}{{$c.Channel.ID}}{{end}}">
+  <aside>
+    <div class="workspace-head">
+      <h1 class="workspace-name">{{.Workspace.Name}}</h1>
+      <div class="me">
+        <span class="presence-dot"></span>
+        <span>{{.Me.DisplayName}}</span>
+      </div>
+    </div>
+    <div class="section-label">チャンネル</div>
+    <div class="channel-list">
+      {{range .Channels}}
+        <div class="channel" data-id="{{.Channel.ID}}" onclick="showChannel({{.Channel.ID}})">
+          <span class="hash">#</span>
+          <span>{{.Channel.Name}}</span>
+        </div>
       {{end}}
     </div>
-    <form class="webhook-form" method="post" action="/admin/webhooks">
-      <h4>新規Webhookを作成</h4>
-      <label>
-        投稿先チャンネル
-        <select name="channel_id">
-          {{range .Channels}}
-            <option value="{{.Channel.ID}}">#{{.Channel.Name}}</option>
+  </aside>
+  <main>
+    <details class="integration-panel">
+      <summary>GitHub連携管理</summary>
+      <div class="integration-body">
+        <p>GitHubのWebhook設定で <code>push</code> イベントを選び、Payload URLとSecretを登録します。</p>
+        <div class="webhook-grid">
+          {{range .Webhooks}}
+            <article class="webhook-item">
+              <div>
+                <strong>{{.Label}}</strong>
+                <span>#{{.ChannelName}}</span>
+              </div>
+              <dl>
+                <dt>Payload URL</dt>
+                <dd><code>{{$.BaseURL}}/api/webhooks/{{.Token}}</code></dd>
+                <dt>Content type</dt>
+                <dd><code>application/json</code></dd>
+                <dt>Secret</dt>
+                <dd>{{if .HasSecret}}Secret configured{{else}}未設定{{end}}</dd>
+              </dl>
+              <form method="post" action="/admin/webhooks/{{.ID}}/delete">
+                <button type="submit">削除</button>
+              </form>
+            </article>
+          {{else}}
+            <p>Webhookはまだありません。下のフォームからGitHub連携を作成してください。</p>
           {{end}}
-        </select>
-      </label>
-      <label>
-        ラベル
-        <input name="label" value="GitHub push" maxlength="255">
-      </label>
-      <label>
-        GitHub Secret
-        <input name="secret" type="password" maxlength="255" autocomplete="new-password">
-      </label>
-      <button type="submit">作成</button>
-    </form>
-  </section>
-  {{range .Channels}}
-    {{template "channel-section" .}}
-  {{end}}
-</main>
-{{end}}
-
-{{define "channel-section"}}
-<section id="channel-{{.Channel.ID}}">
-  <h3>#{{.Channel.Name}}</h3>
-  <!--
-    履歴読み込みボタンです。表示中で最も古いメッセージのIDをbeforeカーソルとして
-    履歴APIへ渡し、返ってきた1ページ(時系列昇順)を一覧の先頭へ挿入します。
-  -->
-  <button class="load-history" type="button"
-          hx-get="/channels/{{.Channel.ID}}/messages"
-          hx-target="#messages-{{.Channel.ID}}"
-          hx-swap="afterbegin"
-          hx-vals='js:{before: (document.querySelector("#messages-{{.Channel.ID}} .message") || {id: "msg-0"}).id.replace("msg-", ""), limit: 20}'>過去のメッセージを読み込む</button>
-  <div id="messages-{{.Channel.ID}}">
-    {{range .Messages}}
-      {{template "message" .}}
+        </div>
+        <form class="webhook-form" method="post" action="/admin/webhooks">
+          <h4>新規Webhookを作成</h4>
+          <label>
+            投稿先チャンネル
+            <select name="channel_id">
+              {{range .Channels}}
+                <option value="{{.Channel.ID}}">#{{.Channel.Name}}</option>
+              {{end}}
+            </select>
+          </label>
+          <label>
+            ラベル
+            <input name="label" value="GitHub push" maxlength="255">
+          </label>
+          <label>
+            GitHub Secret
+            <input name="secret" type="password" maxlength="255" autocomplete="new-password">
+          </label>
+          <button type="submit">作成</button>
+        </form>
+      </div>
+    </details>
+    {{range .Channels}}
+      <section class="channel-section" id="channel-{{.Channel.ID}}">
+        <header class="channel-header">
+          <h2 class="channel-title"># {{.Channel.Name}}</h2>
+          <span class="channel-meta">骨格再現サンプル</span>
+        </header>
+        <!--
+          履歴読み込みボタンです。表示中で最も古いメッセージのIDをbeforeカーソルとして
+          履歴APIへ渡し、返ってきた1ページ(時系列昇順)を一覧の先頭へ挿入します。
+        -->
+        <button class="load-history" type="button"
+                hx-get="/channels/{{.Channel.ID}}/messages"
+                hx-target="#messages-{{.Channel.ID}}"
+                hx-swap="afterbegin"
+                hx-vals='js:{before: (document.querySelector("#messages-{{.Channel.ID}} .message") || {id: "msg-0"}).id.replace("msg-", ""), limit: 20}'>過去のメッセージを読み込む</button>
+        <div class="messages" id="messages-{{.Channel.ID}}">
+          {{range .Messages}}
+            {{template "message" .}}
+          {{end}}
+        </div>
+        <!--
+          client_msg_idは冪等性キーです。送信直前に空のときだけ生成し、
+          失敗時は値を保つことで再送に同じキーを使い、成功時にだけ空へ戻して
+          次回送信時に新しい値を採番します。
+          form.reset()はtype="hidden"を初期値に戻さないため、明示的にクリアします。
+          同じキーは同一内容の再送だけに使う契約なので、失敗後に本文を編集したら
+          oninputでキーを破棄し、次の送信を新規メッセージとして扱います。
+        -->
+        <form class="composer" id="composer-{{.Channel.ID}}"
+              hx-post="/channels/{{.Channel.ID}}/messages"
+              hx-swap="none"
+              hx-on::config-request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.parameters.client_msg_id = f.value;"
+              hx-on::after-request="if (event.detail.successful) { this.reset(); this.elements.client_msg_id.value = ''; }">
+          <div class="composer-card">
+            <input type="hidden" name="client_msg_id" value="">
+            <textarea name="body" placeholder="#{{.Channel.Name}} へメッセージを送信..."
+                      oninput="this.form.elements.client_msg_id.value = ''"></textarea>
+            <div class="composer-actions">
+              <span class="composer-hint">Enterで改行 / <kbd>送信</kbd>ボタンで投稿</span>
+              <button class="send-button" type="submit">送信</button>
+            </div>
+          </div>
+        </form>
+      </section>
     {{end}}
-  </div>
-  <!--
-    client_msg_idは冪等性キーです。送信直前に空のときだけ生成し、
-    失敗時は値を保つことで再送に同じキーを使い、成功時にだけ空へ戻して
-    次回送信時に新しい値を採番します。
-    form.reset()はtype="hidden"を初期値に戻さないため、明示的にクリアします。
-    同じキーは同一内容の再送だけに使う契約なので、失敗後に本文を編集したら
-    oninputでキーを破棄し、次の送信を新規メッセージとして扱います。
-  -->
-  <form id="composer-{{.Channel.ID}}"
-        hx-post="/channels/{{.Channel.ID}}/messages"
-        hx-swap="none"
-        hx-on::config-request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.parameters.client_msg_id = f.value;"
-        hx-on::after-request="if (event.detail.successful) { this.reset(); this.elements.client_msg_id.value = ''; }">
-    <input type="hidden" name="client_msg_id" value="">
-    <textarea name="body" placeholder="メッセージを入力..."
-              oninput="this.form.elements.client_msg_id.value = ''"></textarea>
-    <button type="submit">送信</button>
-  </form>
-</section>
+  </main>
+</div>
 {{end}}

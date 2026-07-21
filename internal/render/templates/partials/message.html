@@ -1,6 +1,12 @@
 {{define "message"}}
 <div class="message" id="msg-{{.ID}}">
-  <div class="meta">ID:{{.ID}} / {{.CreatedAt.Format "2006-01-02 15:04:05"}}</div>
-  <div class="body">{{.Body}}</div>
+  <div class="avatar user-{{.UserID}}">{{.UserID}}</div>
+  <div>
+    <div class="meta">
+      <span class="author">user-{{.UserID}}</span>
+      <span class="timestamp">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+    </div>
+    <div class="body">{{.Body}}</div>
+  </div>
 </div>
 {{end}}
