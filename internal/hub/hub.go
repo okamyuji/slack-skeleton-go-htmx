@@ -81,7 +81,9 @@ func (h *Hub) Unsubscribe(sub *Subscription) {
 	sub.channelIDs = nil
 }
 
-// Publish channelIDを購読中の全コネクションへpayloadを配信します。
+// Publish channelIDを購読中の全コネクションへpayloadを並行に配信します。
+// 直列に送ると遅い購読者1つごとに最大送信期限ぶんの待ちが積み上がり、
+// 健全な購読者への到達もHTTP応答も購読者数に比例して遅れるためです。
 // 呼び出し元(HTTPリクエスト)のctx取り消しに配信を道連れにしないよう、
 // 購読者ごとに独立した送信期限を設けます。タイムアウトを含め送信に失敗した
 // コネクションはUnsubscribeし、残りの購読者への配信は継続します(slow consumer disconnect)。
@@ -94,13 +96,24 @@ func (h *Hub) Publish(ctx context.Context, channelID int64, payload []byte) {
 	}
 	h.mu.RUnlock()
 
+	base := context.WithoutCancel(ctx)
+	var wg sync.WaitGroup
+	failed := make(chan *Subscription, len(targets))
 	for _, sub := range targets {
-		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
-		err := sub.sender.Send(sendCtx, payload)
-		cancel()
-		if err != nil {
-			h.Unsubscribe(sub)
-		}
+		wg.Add(1)
+		go func(sub *Subscription) {
+			defer wg.Done()
+			sendCtx, cancel := context.WithTimeout(base, sendTimeout)
+			defer cancel()
+			if err := sub.sender.Send(sendCtx, payload); err != nil {
+				failed <- sub
+			}
+		}(sub)
+	}
+	wg.Wait()
+	close(failed)
+	for sub := range failed {
+		h.Unsubscribe(sub)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/hub"
 )
@@ -124,6 +125,58 @@ func TestPublishContinuesPastTimedOutSubscriber(t *testing.T) {
 		if g.count() != 1 {
 			t.Fatalf("購読者%dに届いていません: count=%d", i, g.count())
 		}
+	}
+}
+
+// gateSender releaseが閉じるまでSendをブロックし続ける購読者です。
+// 同時に何本のSendが走っているかをinflightで観測します。
+type gateSender struct {
+	inflight *atomic.Int32
+	release  chan struct{}
+}
+
+func (g *gateSender) Send(ctx context.Context, _ []byte) error {
+	g.inflight.Add(1)
+	select {
+	case <-g.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestPublishFansOutConcurrently(t *testing.T) {
+	t.Parallel()
+
+	h := hub.New()
+	var inflight atomic.Int32
+	release := make(chan struct{})
+	const n = 8
+	for i := 0; i < n; i++ {
+		h.Subscribe(&gateSender{inflight: &inflight, release: release}, []int64{1})
+	}
+
+	done := make(chan struct{})
+	go func() {
+		h.Publish(context.Background(), 1, []byte("x"))
+		close(done)
+	}()
+
+	// 直列実装なら同時実行数は1で頭打ちになり、この待ちが失敗します。
+	// 並行実装なら全購読者のSendがブロック中でも同時に開始され、
+	// Publish全体の所要時間は購読者数に比例しません。
+	deadline := time.Now().Add(3 * time.Second)
+	for inflight.Load() < n && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := inflight.Load(); got < n {
+		t.Fatalf("並行送信になっていません: inflight=%d want=%d", got, n)
+	}
+
+	close(release)
+	<-done
+	if h.SubscriberCount(1) != n {
+		t.Fatalf("成功した購読者が解除されています: count=%d", h.SubscriberCount(1))
 	}
 }
 

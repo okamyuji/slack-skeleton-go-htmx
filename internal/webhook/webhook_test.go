@@ -48,22 +48,43 @@ func TestVerifySignature(t *testing.T) {
 	}
 }
 
-func TestGenerateClientMsgID(t *testing.T) {
+func TestClientMsgIDFor(t *testing.T) {
 	t.Parallel()
 
+	githubHeaders := func(delivery string) http.Header {
+		h := http.Header{}
+		h.Set("X-GitHub-Delivery", delivery)
+		return h
+	}
+
+	// GitHub配信: 同一配信IDなら同一キー、別配信IDなら本文が同じでも別キーです。
 	body := []byte(`{"text":"hello"}`)
-	got := generateClientMsgID("token", body)
-	if got == "" {
-		t.Fatal("id is empty")
+	first, err := clientMsgIDFor("token", githubHeaders("delivery-1"), body)
+	if err != nil || first == "" || len(first) > 64 {
+		t.Fatalf("first=%q err=%v", first, err)
 	}
-	if len(got) > 64 {
-		t.Fatalf("len=%d, want <= 64", len(got))
+	same, _ := clientMsgIDFor("token", githubHeaders("delivery-1"), body)
+	if same != first {
+		t.Fatal("同一配信IDで異なるキーが生成されています")
 	}
-	if got != generateClientMsgID("token", body) {
-		t.Fatal("same input produced different ids")
+	other, _ := clientMsgIDFor("token", githubHeaders("delivery-2"), body)
+	if other == first {
+		t.Fatal("別配信IDなのに同一キーです(本文ハッシュに退行しています)")
 	}
-	if got == generateClientMsgID("token", []byte(`{"text":"other"}`)) {
-		t.Fatal("different bodies produced same id")
+
+	// 汎用形式: 明示キーがあれば決定論的、なければ毎回ランダムです。
+	explicit1, _ := clientMsgIDFor("token", http.Header{}, []byte(`{"text":"x","client_msg_id":"caller-1"}`))
+	explicit2, _ := clientMsgIDFor("token", http.Header{}, []byte(`{"text":"y","client_msg_id":"caller-1"}`))
+	if explicit1 != explicit2 {
+		t.Fatal("明示キーが決定論的になっていません")
+	}
+	random1, _ := clientMsgIDFor("token", http.Header{}, body)
+	random2, _ := clientMsgIDFor("token", http.Header{}, body)
+	if random1 == random2 {
+		t.Fatal("キー未指定の同一本文が同一キーになっています(別イベントが消えます)")
+	}
+	if len(random1) > 64 {
+		t.Fatalf("len=%d, want <= 64", len(random1))
 	}
 }
 

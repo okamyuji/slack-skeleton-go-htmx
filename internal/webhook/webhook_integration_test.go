@@ -100,15 +100,22 @@ func TestWebhookIntegrationIdempotency(t *testing.T) {
 	st := store.New(db)
 	token := seedWebhookFixture(t, db)
 	svc := webhook.New(st, message.New(st))
-	body := []byte(`{"text":"same payload"}`)
+	body := []byte(`{"ref":"refs/heads/main","repository":{"name":"demo"},"pusher":{"name":"alice"},"commits":[]}`)
+	githubHeaders := func(delivery string) http.Header {
+		h := http.Header{}
+		h.Set("X-GitHub-Event", "push")
+		h.Set("X-GitHub-Delivery", delivery)
+		return h
+	}
 
-	first, duplicate, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	// 同一配信のredeliveryだけが重複扱いになります。
+	first, duplicate, err := svc.HandlePayload(context.Background(), token, githubHeaders("delivery-1"), body)
 	if err != nil || duplicate {
 		t.Fatalf("first: duplicate=%v err=%v", duplicate, err)
 	}
-	second, duplicate, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	second, duplicate, err := svc.HandlePayload(context.Background(), token, githubHeaders("delivery-1"), body)
 	if err != nil || !duplicate {
-		t.Fatalf("second: duplicate=%v err=%v", duplicate, err)
+		t.Fatalf("redelivery: duplicate=%v err=%v", duplicate, err)
 	}
 	if first.ID != second.ID {
 		t.Fatalf("ids differ: first=%d second=%d", first.ID, second.ID)
@@ -124,6 +131,60 @@ func TestWebhookIntegrationIdempotency(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("message count=%d, want 1", count)
+	}
+
+	// 別配信IDなら本文が同一でも別メッセージとして保存されます。
+	third, duplicate, err := svc.HandlePayload(context.Background(), token, githubHeaders("delivery-2"), body)
+	if err != nil || duplicate {
+		t.Fatalf("other delivery: duplicate=%v err=%v", duplicate, err)
+	}
+	if third.ID == first.ID {
+		t.Fatal("別配信が重複として消えています")
+	}
+}
+
+func TestWebhookIntegrationGenericSameBodySavesTwo(t *testing.T) {
+	db, cleanup := openWebhookTestDB(t)
+	defer cleanup()
+
+	st := store.New(db)
+	token := seedWebhookFixture(t, db)
+	svc := webhook.New(st, message.New(st))
+	body := []byte(`{"text":"定期通知: バックアップ完了"}`)
+
+	// キー未指定の汎用形式は重複排除しません。同一本文の別イベントは2件とも残ります。
+	first, dup1, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	if err != nil || dup1 {
+		t.Fatalf("first: dup=%v err=%v", dup1, err)
+	}
+	second, dup2, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	if err != nil || dup2 {
+		t.Fatalf("second: dup=%v err=%v", dup2, err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("同一本文の別イベントが1件に潰されています")
+	}
+}
+
+func TestWebhookIntegrationGenericExplicitKeyDeduplicates(t *testing.T) {
+	db, cleanup := openWebhookTestDB(t)
+	defer cleanup()
+
+	st := store.New(db)
+	token := seedWebhookFixture(t, db)
+	svc := webhook.New(st, message.New(st))
+	body := []byte(`{"text":"リトライされる通知","client_msg_id":"caller-key-1"}`)
+
+	first, dup1, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	if err != nil || dup1 {
+		t.Fatalf("first: dup=%v err=%v", dup1, err)
+	}
+	second, dup2, err := svc.HandlePayload(context.Background(), token, http.Header{}, body)
+	if err != nil || !dup2 {
+		t.Fatalf("second: dup=%v err=%v", dup2, err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("明示キーの再送が同一メッセージになっていません: %d != %d", first.ID, second.ID)
 	}
 }
 

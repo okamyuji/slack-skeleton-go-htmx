@@ -71,11 +71,16 @@ func (s *Service) HandlePayload(
 		return domain.Message{}, false, err
 	}
 
+	clientMsgID, err := clientMsgIDFor(token, headers, body)
+	if err != nil {
+		return domain.Message{}, false, err
+	}
+
 	return s.messages.Send(ctx, message.SendInput{
 		ChannelID:   wh.ChannelID,
 		UserID:      wh.BotUserID,
 		Body:        text,
-		ClientMsgID: generateClientMsgID(token, body),
+		ClientMsgID: clientMsgID,
 	})
 }
 
@@ -100,9 +105,40 @@ func verifySignature(secret string, payload []byte, signatureHeader string) erro
 	return nil
 }
 
-func generateClientMsgID(token string, body []byte) string {
-	h := sha256.Sum256(append([]byte(token+":"), body...))
+// clientMsgIDFor 配信の同一性を表す冪等キーを決めます。
+// 本文のハッシュをキーにすると、定期通知のような「同一本文の別イベント」まで
+// 重複として消えてしまうため、本文ではなくイベントの識別子から導出します。
+//
+//   - GitHub配信: 配信ごとに一意なX-GitHub-Deliveryヘッダをキーにします。
+//     重複扱いになるのは同一配信のredeliveryだけです。
+//   - 汎用形式: 呼び出し側が明示したclient_msg_idフィールドをキーにします。
+//     指定がなければ重複排除を行わず、毎回ランダムなキーを採番します。
+func clientMsgIDFor(token string, headers http.Header, body []byte) (string, error) {
+	if delivery := strings.TrimSpace(headers.Get("X-GitHub-Delivery")); delivery != "" {
+		return hashedClientMsgID(token, delivery), nil
+	}
+	var payload struct {
+		ClientMsgID string `json:"client_msg_id"`
+	}
+	// 形式エラーはpayloadTextが先に検出しているため、ここでは無視できます。
+	_ = json.Unmarshal(body, &payload)
+	if key := strings.TrimSpace(payload.ClientMsgID); key != "" {
+		return hashedClientMsgID(token, key), nil
+	}
+	return randomClientMsgID()
+}
+
+func hashedClientMsgID(token, eventID string) string {
+	h := sha256.Sum256([]byte(token + ":" + eventID))
 	return "wh-" + hex.EncodeToString(h[:])[:28]
+}
+
+func randomClientMsgID() (string, error) {
+	b := make([]byte, 12)
+	if _, err := crypto_rand.Read(b); err != nil {
+		return "", fmt.Errorf("webhook client_msg_id: %w", err)
+	}
+	return "wh-" + hex.EncodeToString(b), nil
 }
 
 func payloadText(headers http.Header, body []byte) (string, error) {
