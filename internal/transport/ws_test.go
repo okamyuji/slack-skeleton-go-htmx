@@ -99,6 +99,11 @@ func TestIsExpectedCloseRecognizesCloseError(t *testing.T) {
 	}
 }
 
+// allowAllMembers 全員をメンバー扱いするMembership検査のテストダブルです。
+type allowAllMembers struct{}
+
+func (allowAllMembers) IsMember(_ context.Context, _, _ int64) (bool, error) { return true, nil }
+
 func TestWSHandlerEndToEnd(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +116,7 @@ func TestWSHandlerEndToEnd(t *testing.T) {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Renderer: r,
 		Hub:      h,
+		Members:  allowAllMembers{},
 	}
 
 	server := httptest.NewServer(wsHandler(deps))

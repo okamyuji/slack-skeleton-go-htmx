@@ -215,6 +215,18 @@ func TestSendPropagatesInsertError(t *testing.T) {
 	}
 }
 
+func TestHistoryRejectsNonMember(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	// Membershipを与えないまま読み取りを試みます
+	svc := message.New(repo)
+
+	_, err := svc.History(context.Background(), 1, 1, 0, 0)
+	if !errors.Is(err, message.ErrNotMember) {
+		t.Fatalf("want ErrNotMember, got %v", err)
+	}
+}
+
 func TestHistoryDefaultsLimit(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()
@@ -230,7 +242,7 @@ func TestHistoryDefaultsLimit(t *testing.T) {
 		}
 		time.Sleep(time.Microsecond)
 	}
-	got, err := svc.History(context.Background(), 1, 0, 0)
+	got, err := svc.History(context.Background(), 1, 1, 0, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -256,7 +268,7 @@ func TestHistoryUsesBeforeCursor(t *testing.T) {
 		ids = append(ids, saved.ID)
 		time.Sleep(time.Microsecond)
 	}
-	got, err := svc.History(context.Background(), 1, ids[2], 10)
+	got, err := svc.History(context.Background(), 1, 1, ids[2], 10)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}

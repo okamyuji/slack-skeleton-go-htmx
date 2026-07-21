@@ -29,16 +29,20 @@ type stubReader struct {
 	channels []domain.Channel
 	users    []domain.User
 	recent   map[int64][]domain.Message
+	repo     *fakeMessageRepo // 非nilのときはRecentMessagesを保存済みデータへ委譲します
 	webhooks []domain.WebhookSetting
 }
 
-func (s *stubReader) ListChannelsByWorkspace(_ context.Context, _ int64) ([]domain.Channel, error) {
+func (s *stubReader) ListChannelsForUser(_ context.Context, _, _ int64) ([]domain.Channel, error) {
 	return s.channels, nil
 }
 func (s *stubReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.User, error) {
 	return s.users, nil
 }
-func (s *stubReader) RecentMessages(_ context.Context, channelID int64, _ int) ([]domain.Message, error) {
+func (s *stubReader) RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error) {
+	if s.repo != nil {
+		return s.repo.RecentMessages(ctx, channelID, limit)
+	}
 	return s.recent[channelID], nil
 }
 func (s *stubReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
@@ -123,6 +127,7 @@ func newFullDeps(t *testing.T) (transport.Deps, *fakeMessageRepo, *hub.Hub) {
 		channels: []domain.Channel{{ID: 10, Name: "general"}},
 		users:    []domain.User{{ID: 1, DisplayName: "alice"}},
 		recent:   map[int64][]domain.Message{},
+		repo:     repo,
 	}
 	deps := transport.Deps{
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -130,6 +135,7 @@ func newFullDeps(t *testing.T) (transport.Deps, *fakeMessageRepo, *hub.Hub) {
 		Renderer: r,
 		Messages: message.New(repo),
 		Hub:      h,
+		Members:  repo,
 	}
 	return deps, repo, h
 }

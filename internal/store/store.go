@@ -75,6 +75,31 @@ func (s *Store) ListChannelsByWorkspace(ctx context.Context, workspaceID int64) 
 	return out, rows.Err()
 }
 
+// ListChannelsForUser 対象Workspaceのうち、userが参加しているチャンネルだけを名前順で返します。
+// Snapshotや購読の読み取り境界はこのMembership結合で導出します。
+func (s *Store) ListChannelsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.Channel, error) {
+	const q = `SELECT c.id, c.workspace_id, c.name, c.created_at
+	             FROM channels c
+	             JOIN memberships m ON m.channel_id = c.id
+	            WHERE c.workspace_id = ?
+	              AND m.user_id = ?
+	            ORDER BY c.name ASC`
+	rows, err := s.db.QueryContext(ctx, q, workspaceID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list channels for user: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []domain.Channel
+	for rows.Next() {
+		var c domain.Channel
+		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ListUsersByWorkspace 対象Workspaceのユーザーを表示名順で返します。
 func (s *Store) ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]domain.User, error) {
 	const q = `SELECT id, workspace_id, display_name, is_bot, created_at

@@ -109,6 +109,7 @@ func buildDeps(logger *slog.Logger, dsn, migrationsDir string) (transport.Deps, 
 	deps.Webhooks = webhook.New(s, deps.Messages)
 	deps.WebhookAdmin = s
 	deps.Hub = hub.New()
+	deps.Members = s
 	return deps, cleanup, nil
 }
 

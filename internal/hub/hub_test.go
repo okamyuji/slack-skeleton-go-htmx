@@ -92,6 +92,61 @@ func TestSlowConsumerIsDisconnected(t *testing.T) {
 	}
 }
 
+// deadlineSender 常にcontext.DeadlineExceededを返す購読者です。
+// wsClientの送信タイムアウト切れを模擬します。
+type deadlineSender struct{ atomic.Int32 }
+
+func (d *deadlineSender) Send(_ context.Context, _ []byte) error {
+	d.Add(1)
+	return context.DeadlineExceeded
+}
+
+func TestPublishContinuesPastTimedOutSubscriber(t *testing.T) {
+	t.Parallel()
+
+	h := hub.New()
+	bad := &deadlineSender{}
+	goods := make([]*recordingSender, 5)
+	h.Subscribe(bad, []int64{1})
+	for i := range goods {
+		goods[i] = &recordingSender{}
+		h.Subscribe(goods[i], []int64{1})
+	}
+
+	h.Publish(context.Background(), 1, []byte("x"))
+
+	// タイムアウトした購読者は必ず解除され、他の全購読者には届きます。
+	// mapの反復順に依存しないよう、失敗側が先頭でも後続でも同じ結果を要求します。
+	if h.SubscriberCount(1) != len(goods) {
+		t.Fatalf("タイムアウト側が解除されていません: count=%d", h.SubscriberCount(1))
+	}
+	for i, g := range goods {
+		if g.count() != 1 {
+			t.Fatalf("購読者%dに届いていません: count=%d", i, g.count())
+		}
+	}
+}
+
+func TestPublishDeliversEvenWhenCallerContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	h := hub.New()
+	good := &recordingSender{}
+	h.Subscribe(good, []int64{1})
+
+	// 保存済みメッセージの配信はHTTPリクエストの取り消しに道連れにしません。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.Publish(ctx, 1, []byte("x"))
+
+	if good.count() != 1 {
+		t.Fatalf("呼び出し元ctx取り消し時に配信されていません: count=%d", good.count())
+	}
+	if h.SubscriberCount(1) != 1 {
+		t.Fatalf("正常な購読者が解除されています: count=%d", h.SubscriberCount(1))
+	}
+}
+
 func TestConcurrentPublishIsRaceFree(t *testing.T) {
 	t.Parallel()
 

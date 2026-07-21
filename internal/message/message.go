@@ -91,9 +91,17 @@ func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool,
 }
 
 // History カーソルベースで過去メッセージを最新順に返します。
-func (s *Service) History(ctx context.Context, channelID, beforeID int64, limit int) ([]domain.Message, error) {
+// 投稿側と同じMembership境界を読み取り側にも適用し、非参加者にはErrNotMemberを返します。
+func (s *Service) History(ctx context.Context, userID, channelID, beforeID int64, limit int) ([]domain.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
+	}
+	ok, err := s.repo.IsMember(ctx, userID, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("history: is member: %w", err)
+	}
+	if !ok {
+		return nil, ErrNotMember
 	}
 	msgs, err := s.repo.MessagesBefore(ctx, channelID, beforeID, limit)
 	if err != nil {

@@ -41,6 +41,30 @@ func wsHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "channel_ids required", http.StatusBadRequest)
 			return
 		}
+		if deps.Members == nil {
+			http.Error(w, "membership not wired", http.StatusInternalServerError)
+			return
+		}
+
+		// 投稿側と同じMembership境界を購読側にも適用します。
+		// WebSocketへ昇格すると以降はHTTPステータスを返せないため、Acceptの前に検査します。
+		userID := currentUserID(r)
+		memberCtx, cancelMember := context.WithTimeout(r.Context(), 5*time.Second)
+		for _, id := range channelIDs {
+			ok, err := deps.Members.IsMember(memberCtx, userID, id)
+			if err != nil {
+				cancelMember()
+				deps.Logger.Error("ws membership", "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				cancelMember()
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		cancelMember()
 
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			OriginPatterns: []string{"*"},

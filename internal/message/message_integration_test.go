@@ -137,7 +137,7 @@ func TestHistoryReturnsLatestFirst_Integration(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	first, err := svc.History(context.Background(), channelID, 0, 3)
+	first, err := svc.History(context.Background(), userID, channelID, 0, 3)
 	if err != nil || len(first) != 3 {
 		t.Fatalf("first: err=%v len=%d", err, len(first))
 	}
@@ -146,7 +146,7 @@ func TestHistoryReturnsLatestFirst_Integration(t *testing.T) {
 			t.Fatal("id降順ではありません")
 		}
 	}
-	second, err := svc.History(context.Background(), channelID, first[len(first)-1].ID, 3)
+	second, err := svc.History(context.Background(), userID, channelID, first[len(first)-1].ID, 3)
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}

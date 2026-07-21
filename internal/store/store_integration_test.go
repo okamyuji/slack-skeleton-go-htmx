@@ -172,6 +172,32 @@ func TestListChannelsAndUsersByWorkspace(t *testing.T) {
 	}
 }
 
+func TestListChannelsForUserFiltersByMembership(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+
+	workspaceID, userID, _ := seedBasicFixture(t, db)
+	// メンバーでないチャンネルを追加します
+	if _, err := db.Exec("INSERT INTO channels (workspace_id, name) VALUES (?, ?)", workspaceID, "random"); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	s := store.New(db)
+	channels, err := s.ListChannelsForUser(context.Background(), workspaceID, userID)
+	if err != nil {
+		t.Fatalf("list for user: %v", err)
+	}
+	if len(channels) != 1 || channels[0].Name != "general" {
+		t.Fatalf("参加チャンネルだけを期待しましたが: %+v", channels)
+	}
+
+	// 非参加ユーザーには何も返しません
+	channels, err = s.ListChannelsForUser(context.Background(), workspaceID, 9999)
+	if err != nil || len(channels) != 0 {
+		t.Fatalf("non-member: err=%v channels=%+v", err, channels)
+	}
+}
+
 func TestRecentMessagesAndIsMember(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()

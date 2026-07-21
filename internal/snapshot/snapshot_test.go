@@ -20,7 +20,7 @@ type fakeReader struct {
 	webhookErr error
 }
 
-func (f *fakeReader) ListChannelsByWorkspace(_ context.Context, _ int64) ([]domain.Channel, error) {
+func (f *fakeReader) ListChannelsForUser(_ context.Context, _, _ int64) ([]domain.Channel, error) {
 	return f.channels, f.err
 }
 func (f *fakeReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.User, error) {

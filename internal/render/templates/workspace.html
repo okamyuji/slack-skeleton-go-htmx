@@ -69,10 +69,17 @@
       {{template "message" .}}
     {{end}}
   </div>
+  <!--
+    client_msg_idは冪等性キーです。送信直前に空のときだけ生成し、
+    失敗時は値を保つことで再送に同じキーを使い、成功時にだけ空へ戻して
+    次回送信時に新しい値を採番します。
+    form.reset()はtype="hidden"を初期値に戻さないため、明示的にクリアします。
+  -->
   <form id="composer-{{.Channel.ID}}"
         hx-post="/channels/{{.Channel.ID}}/messages"
         hx-swap="none"
-        hx-on::after-request="this.reset()">
+        hx-on::config-request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.parameters.client_msg_id = f.value;"
+        hx-on::after-request="if (event.detail.successful) { this.reset(); this.elements.client_msg_id.value = ''; }">
     <input type="hidden" name="client_msg_id" value="">
     <textarea name="body" placeholder="メッセージを入力..."></textarea>
     <button type="submit">送信</button>

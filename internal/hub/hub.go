@@ -4,9 +4,13 @@ package hub
 
 import (
 	"context"
-	"errors"
 	"sync"
+	"time"
 )
+
+// sendTimeout 1購読者あたりの送信期限です。
+// 遅い購読者が他の購読者への配信を道連れにしないよう、購読者ごとに独立して適用します。
+const sendTimeout = 5 * time.Second
 
 // Sender 1つのWebSocketコネクションに対するHTMLフラグメント送信の抽象です。
 // 本記事のWSハンドラはこのインターフェイスを実装します。
@@ -78,7 +82,9 @@ func (h *Hub) Unsubscribe(sub *Subscription) {
 }
 
 // Publish channelIDを購読中の全コネクションへpayloadを配信します。
-// 送信に失敗したコネクションは自動的にUnsubscribeします(slow consumer disconnect)。
+// 呼び出し元(HTTPリクエスト)のctx取り消しに配信を道連れにしないよう、
+// 購読者ごとに独立した送信期限を設けます。タイムアウトを含め送信に失敗した
+// コネクションはUnsubscribeし、残りの購読者への配信は継続します(slow consumer disconnect)。
 func (h *Hub) Publish(ctx context.Context, channelID int64, payload []byte) {
 	h.mu.RLock()
 	subs := h.subscribers[channelID]
@@ -89,10 +95,10 @@ func (h *Hub) Publish(ctx context.Context, channelID int64, payload []byte) {
 	h.mu.RUnlock()
 
 	for _, sub := range targets {
-		if err := sub.sender.Send(ctx, payload); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
+		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
+		err := sub.sender.Send(sendCtx, payload)
+		cancel()
+		if err != nil {
 			h.Unsubscribe(sub)
 		}
 	}

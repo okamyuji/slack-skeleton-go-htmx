@@ -29,6 +29,12 @@ type Deps struct {
 	Webhooks     *webhook.Service
 	WebhookAdmin webhookAdmin
 	Hub          *hub.Hub
+	Members      membershipChecker
+}
+
+// membershipChecker WebSocket購読前のMembership検査に使う読み取り境界の抽象です。
+type membershipChecker interface {
+	IsMember(ctx context.Context, userID, channelID int64) (bool, error)
 }
 
 type webhookAdmin interface {
@@ -322,8 +328,12 @@ func historyHandler(deps Deps) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		msgs, err := deps.Messages.History(ctx, channelID, beforeID, limit)
+		msgs, err := deps.Messages.History(ctx, currentUserID(r), channelID, beforeID, limit)
 		if err != nil {
+			if errors.Is(err, message.ErrNotMember) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			deps.Logger.Error("history", "err", err)
 			http.Error(w, "history error", http.StatusInternalServerError)
 			return
