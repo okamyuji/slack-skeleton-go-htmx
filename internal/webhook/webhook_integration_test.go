@@ -143,6 +143,67 @@ func TestWebhookIntegrationIdempotency(t *testing.T) {
 	}
 }
 
+// TestWebhookIntegrationEndToEndFromRegistration 管理経路と同じ手順での登録から、
+// 発行されたtokenによる受信、redeliveryの重複排除までを1本で通します。
+// 個別テストの成功だけでは登録と受信の配線ずれを検出できないため、
+// 記事が保証する一気通貫の回帰テストとして固定します。
+func TestWebhookIntegrationEndToEndFromRegistration(t *testing.T) {
+	db, cleanup := openWebhookTestDB(t)
+	defer cleanup()
+
+	st := store.New(db)
+	seedWebhookBase(t, db)
+	ctx := context.Background()
+
+	// 1. 管理ハンドラと同じ手順でWebhookを登録します。
+	botID, err := st.FindWebhookBotUserIDByChannel(ctx, 12)
+	if err != nil {
+		t.Fatalf("find bot: %v", err)
+	}
+	token, err := webhook.GenerateToken()
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	if _, err := st.CreateWebhook(ctx, store.CreateWebhookInput{
+		ChannelID: 12,
+		Token:     token,
+		Label:     "e2e webhook",
+		Secret:    "",
+		BotUserID: botID,
+	}); err != nil {
+		t.Fatalf("create webhook: %v", err)
+	}
+
+	// 2. 発行されたtokenで受信し、同一配信のredeliveryが1件に畳まれることを確認します。
+	svc := webhook.New(st, message.New(st))
+	body := []byte(`{"ref":"refs/heads/main","repository":{"name":"demo"},"pusher":{"name":"alice"},"commits":[]}`)
+	headers := http.Header{}
+	headers.Set("X-GitHub-Event", "push")
+	headers.Set("X-GitHub-Delivery", "e2e-delivery-1")
+
+	first, dup1, err := svc.HandlePayload(ctx, token, headers, body)
+	if err != nil || dup1 {
+		t.Fatalf("first: dup=%v err=%v", dup1, err)
+	}
+	second, dup2, err := svc.HandlePayload(ctx, token, headers, body)
+	if err != nil || !dup2 {
+		t.Fatalf("redelivery: dup=%v err=%v", dup2, err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("ids differ: %d != %d", first.ID, second.ID)
+	}
+
+	var count int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE channel_id = ?", first.ChannelID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("message count=%d, want 1", count)
+	}
+}
+
 func TestWebhookIntegrationGenericSameBodySavesTwo(t *testing.T) {
 	db, cleanup := openWebhookTestDB(t)
 	defer cleanup()
@@ -228,7 +289,9 @@ func openWebhookTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 }
 
-func seedWebhookFixture(t *testing.T, db *sql.DB) string {
+// seedWebhookBase workspace、bot、channel、Membershipだけを投入します。
+// Webhookの登録自体をテスト対象にするテストはこちらを使います。
+func seedWebhookBase(t *testing.T, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, "INSERT INTO workspaces (id, name) VALUES (?, ?)", 1, "test-ws"); err != nil {
@@ -258,8 +321,13 @@ func seedWebhookFixture(t *testing.T, db *sql.DB) string {
 	); err != nil {
 		t.Fatalf("seed membership: %v", err)
 	}
+}
+
+func seedWebhookFixture(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	seedWebhookBase(t, db)
 	token := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	if _, err := db.ExecContext(ctx,
+	if _, err := db.ExecContext(context.Background(),
 		"INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id) VALUES (?, ?, ?, ?, ?)",
 		12,
 		token,

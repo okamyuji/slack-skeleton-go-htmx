@@ -120,6 +120,66 @@ func TestBrowserFormPostToWebSocketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWSRejectsCrossOrigin(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{1, 10}] = true
+	server := httptest.NewServer(transport.NewMux(deps))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// 第三者サイトのページからの接続を模擬します。既定のsame-origin検査で拒否されます。
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?channel_ids=10"
+	_, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{"https://evil.example"}},
+	})
+	if err == nil {
+		t.Fatal("err: nil (Forbiddenを期待)")
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%v", resp)
+	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+}
+
+func TestWSAcceptsSameOrigin(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, h := newFullDeps(t)
+	repo.members[[2]int64{1, 10}] = true
+	server := httptest.NewServer(transport.NewMux(deps))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// ブラウザが自サイトのページから接続するときのOriginヘッダを模擬します。
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?channel_ids=10"
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{server.URL}},
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for h.SubscriberCount(10) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if h.SubscriberCount(10) != 1 {
+		t.Fatalf("same-originの購読が成立していません: count=%d", h.SubscriberCount(10))
+	}
+}
+
 func TestWSRejectsNonMemberSubscription(t *testing.T) {
 	t.Parallel()
 

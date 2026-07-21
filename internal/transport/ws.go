@@ -66,9 +66,10 @@ func wsHandler(deps Deps) http.HandlerFunc {
 		}
 		cancelMember()
 
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			OriginPatterns: []string{"*"},
-		})
+		// Acceptオプションは既定のまま使い、ライブラリのsame-origin検査に任せます。
+		// OriginPatternsで全Originを許可すると、第三者サイトのページから
+		// 擬似ユーザーの購読が張れてしまい、Membershipの読み取り境界が崩れます。
+		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			deps.Logger.Warn("ws accept", "err", err)
 			return
