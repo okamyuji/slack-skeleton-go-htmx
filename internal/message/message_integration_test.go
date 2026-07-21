@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -120,6 +121,40 @@ func TestSendRejectsNonMember_Integration(t *testing.T) {
 	})
 	if !errors.Is(err, message.ErrNotMember) {
 		t.Fatalf("want ErrNotMember, got %v", err)
+	}
+}
+
+func TestSendDuplicateAfterManyNewerMessages_Integration(t *testing.T) {
+	db := openDB(t)
+	channelID, userID := seed(t, db)
+	svc := message.New(store.New(db))
+
+	first, _, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: channelID, UserID: userID, Body: "最初の投稿", ClientMsgID: "delayed-retry-key",
+	})
+	if err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+
+	// 冪等キーの解決が「直近N件の線形検索」だと、N件を超える新規投稿の後の
+	// リトライで原本を見失います。ユニークキー直接SELECTならこの回帰は起きません。
+	for i := 0; i < 120; i++ {
+		if _, err := db.Exec(
+			"INSERT INTO messages (channel_id, user_id, body, client_msg_id) VALUES (?, ?, ?, ?)",
+			channelID, userID, "埋め草", fmt.Sprintf("filler-%03d", i),
+		); err != nil {
+			t.Fatalf("filler %d: %v", i, err)
+		}
+	}
+
+	retried, dup, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: channelID, UserID: userID, Body: "最初の投稿", ClientMsgID: "delayed-retry-key",
+	})
+	if err != nil {
+		t.Fatalf("delayed retry: %v", err)
+	}
+	if !dup || retried.ID != first.ID {
+		t.Fatalf("dup=%v retried.ID=%d want %d", dup, retried.ID, first.ID)
 	}
 }
 

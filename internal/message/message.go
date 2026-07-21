@@ -23,7 +23,7 @@ var ErrNotMember = errors.New("message: not a member")
 type Repository interface {
 	IsMember(ctx context.Context, userID, channelID int64) (bool, error)
 	InsertMessage(ctx context.Context, in domain.Message) (domain.Message, error)
-	RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error)
+	FindMessageByClientMsgID(ctx context.Context, channelID int64, clientMsgID string) (domain.Message, error)
 	MessagesBefore(ctx context.Context, channelID, beforeID int64, limit int) ([]domain.Message, error)
 }
 
@@ -82,8 +82,10 @@ func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool,
 		return domain.Message{}, false, fmt.Errorf("send: insert: %w", err)
 	}
 
-	// 既存レコードを探して返します(教材スコープなのでchannel単位の線形検索で十分です)。
-	existing, err := s.findExistingByClientMsgID(ctx, in.ChannelID, cid)
+	// 既存レコードをユニークキーで直接引いて返します。
+	// 直近N件の線形検索だと、遅延リトライまでにN件を超える新規投稿が
+	// 挟まった時点で見つけられなくなり、冪等な結果を返せません。
+	existing, err := s.repo.FindMessageByClientMsgID(ctx, in.ChannelID, cid)
 	if err != nil {
 		return domain.Message{}, false, fmt.Errorf("send: find existing: %w", err)
 	}
@@ -108,19 +110,4 @@ func (s *Service) History(ctx context.Context, userID, channelID, beforeID int64
 		return nil, fmt.Errorf("history: %w", err)
 	}
 	return msgs, nil
-}
-
-func (s *Service) findExistingByClientMsgID(ctx context.Context, channelID int64, clientMsgID string) (domain.Message, error) {
-	// 同一チャンネル内の最新側から軽くスキャンします。
-	// 本番ではUNIQUEインデックス利用の単発SELECTに置き換える前提です。
-	recent, err := s.repo.RecentMessages(ctx, channelID, 100)
-	if err != nil {
-		return domain.Message{}, err
-	}
-	for _, m := range recent {
-		if m.ClientMsgID == clientMsgID {
-			return m, nil
-		}
-	}
-	return domain.Message{}, fmt.Errorf("duplicate marker but record not found")
 }

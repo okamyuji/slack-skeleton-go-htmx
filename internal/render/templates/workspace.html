@@ -64,6 +64,15 @@
 {{define "channel-section"}}
 <section id="channel-{{.Channel.ID}}">
   <h3>#{{.Channel.Name}}</h3>
+  <!--
+    履歴読み込みボタンです。表示中で最も古いメッセージのIDをbeforeカーソルとして
+    履歴APIへ渡し、返ってきた1ページ(時系列昇順)を一覧の先頭へ挿入します。
+  -->
+  <button class="load-history" type="button"
+          hx-get="/channels/{{.Channel.ID}}/messages"
+          hx-target="#messages-{{.Channel.ID}}"
+          hx-swap="afterbegin"
+          hx-vals='js:{before: (document.querySelector("#messages-{{.Channel.ID}} .message") || {id: "msg-0"}).id.replace("msg-", ""), limit: 20}'>過去のメッセージを読み込む</button>
   <div id="messages-{{.Channel.ID}}">
     {{range .Messages}}
       {{template "message" .}}

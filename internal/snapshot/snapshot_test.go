@@ -29,7 +29,7 @@ func (f *fakeReader) ListUsersByWorkspace(_ context.Context, _ int64) ([]domain.
 func (f *fakeReader) RecentMessages(_ context.Context, channelID int64, _ int) ([]domain.Message, error) {
 	return f.recent[channelID], f.err
 }
-func (f *fakeReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+func (f *fakeReader) ListWebhookSettingsForUser(_ context.Context, _, _ int64) ([]domain.WebhookSetting, error) {
 	if f.webhookErr != nil {
 		return nil, f.webhookErr
 	}

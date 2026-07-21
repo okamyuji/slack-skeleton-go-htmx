@@ -14,7 +14,7 @@ import (
 type Reader interface {
 	ListChannelsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.Channel, error)
 	ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]domain.User, error)
-	ListWebhookSettingsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.WebhookSetting, error)
+	ListWebhookSettingsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.WebhookSetting, error)
 	RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error)
 }
 
@@ -63,7 +63,8 @@ func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, 
 	if err != nil {
 		return View{}, fmt.Errorf("snapshot: users: %w", err)
 	}
-	webhooks, err := s.reader.ListWebhookSettingsByWorkspace(ctx, workspaceID)
+	// Payload URLのtokenを含むため、Webhook一覧も参加チャンネル分だけ返します。
+	webhooks, err := s.reader.ListWebhookSettingsForUser(ctx, workspaceID, meUserID)
 	if err != nil {
 		return View{}, fmt.Errorf("snapshot: webhooks: %w", err)
 	}

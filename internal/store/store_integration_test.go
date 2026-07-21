@@ -246,7 +246,7 @@ func TestWebhookSettingsCRUD(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
 
-	workspaceID, _, channelID := seedBasicFixture(t, db)
+	workspaceID, userID, channelID := seedBasicFixture(t, db)
 	botUserID := seedWebhookBot(t, db, workspaceID, channelID)
 	s := store.New(db)
 	token := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -265,7 +265,7 @@ func TestWebhookSettingsCRUD(t *testing.T) {
 		t.Fatal("created id is zero")
 	}
 
-	settings, err := s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	settings, err := s.ListWebhookSettingsForUser(context.Background(), workspaceID, userID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -276,13 +276,27 @@ func TestWebhookSettingsCRUD(t *testing.T) {
 		t.Fatalf("settings=%+v", settings[0])
 	}
 
+	// tokenを含む一覧は非メンバーには返しません
+	nonMember, err := s.ListWebhookSettingsForUser(context.Background(), workspaceID, 9999)
+	if err != nil || len(nonMember) != 0 {
+		t.Fatalf("non-member list: err=%v settings=%+v", err, nonMember)
+	}
+
+	gotChannelID, err := s.FindWebhookChannelID(context.Background(), created.ID)
+	if err != nil || gotChannelID != channelID {
+		t.Fatalf("find webhook channel: err=%v got=%d want=%d", err, gotChannelID, channelID)
+	}
+
 	if err := s.DeleteWebhook(context.Background(), created.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if err := s.DeleteWebhook(context.Background(), created.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second delete: want ErrNotFound, got %v", err)
 	}
-	settings, err = s.ListWebhookSettingsByWorkspace(context.Background(), workspaceID)
+	if _, err := s.FindWebhookChannelID(context.Background(), created.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("find after delete: want ErrNotFound, got %v", err)
+	}
+	settings, err = s.ListWebhookSettingsForUser(context.Background(), workspaceID, userID)
 	if err != nil {
 		t.Fatalf("list after delete: %v", err)
 	}

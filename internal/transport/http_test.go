@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +46,7 @@ func (s *stubReader) RecentMessages(ctx context.Context, channelID int64, limit 
 	}
 	return s.recent[channelID], nil
 }
-func (s *stubReader) ListWebhookSettingsByWorkspace(_ context.Context, _ int64) ([]domain.WebhookSetting, error) {
+func (s *stubReader) ListWebhookSettingsForUser(_ context.Context, _, _ int64) ([]domain.WebhookSetting, error) {
 	return s.webhooks, nil
 }
 
@@ -84,6 +85,15 @@ func (f *fakeMessageRepo) InsertMessage(_ context.Context, in domain.Message) (d
 	f.stored = append(f.stored, in)
 	f.idem[key] = in
 	return in, nil
+}
+
+func (f *fakeMessageRepo) FindMessageByClientMsgID(_ context.Context, channelID int64, clientMsgID string) (domain.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if m, ok := f.idem[clientMsgID]; ok && m.ChannelID == channelID {
+		return m, nil
+	}
+	return domain.Message{}, store.ErrNotFound
 }
 
 func (f *fakeMessageRepo) RecentMessages(_ context.Context, channelID int64, limit int) ([]domain.Message, error) {
@@ -144,6 +154,7 @@ type fakeWebhookAdmin struct {
 	created   store.CreateWebhookInput
 	deleted   int64
 	botUserID int64
+	channelID int64
 }
 
 func (f *fakeWebhookAdmin) FindWebhookBotUserIDByChannel(_ context.Context, _ int64) (int64, error) {
@@ -151,6 +162,13 @@ func (f *fakeWebhookAdmin) FindWebhookBotUserIDByChannel(_ context.Context, _ in
 		return f.botUserID, nil
 	}
 	return 3, nil
+}
+
+func (f *fakeWebhookAdmin) FindWebhookChannelID(_ context.Context, _ int64) (int64, error) {
+	if f.channelID != 0 {
+		return f.channelID, nil
+	}
+	return 12, nil
 }
 
 func (f *fakeWebhookAdmin) CreateWebhook(_ context.Context, in store.CreateWebhookInput) (domain.Webhook, error) {
@@ -397,7 +415,8 @@ func TestWebhookHandlerInvalidInputReturns400(t *testing.T) {
 func TestCreateWebhookAdminCreatesAndRedirects(t *testing.T) {
 	t.Parallel()
 
-	deps, _, _ := newFullDeps(t)
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{1, 12}] = true
 	admin := &fakeWebhookAdmin{botUserID: 30}
 	deps.WebhookAdmin = admin
 
@@ -450,7 +469,8 @@ func TestCreateWebhookAdminRejectsInvalidChannel(t *testing.T) {
 func TestDeleteWebhookAdminDeletesAndRedirects(t *testing.T) {
 	t.Parallel()
 
-	deps, _, _ := newFullDeps(t)
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{1, 12}] = true
 	admin := &fakeWebhookAdmin{}
 	deps.WebhookAdmin = admin
 
@@ -464,6 +484,78 @@ func TestDeleteWebhookAdminDeletesAndRedirects(t *testing.T) {
 	}
 	if admin.deleted != 42 {
 		t.Fatalf("deleted=%d", admin.deleted)
+	}
+}
+
+func TestCreateWebhookAdminRejectsNonMember(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t) // Membershipは空のまま
+	deps.WebhookAdmin = &fakeWebhookAdmin{botUserID: 30}
+
+	mux := transport.NewMux(deps)
+	form := url.Values{"channel_id": {"12"}, "label": {"GitHub main"}}
+	req := httptest.NewRequest(http.MethodPost, "/admin/webhooks", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Id", "1")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", rec.Code)
+	}
+}
+
+func TestDeleteWebhookAdminRejectsNonMember(t *testing.T) {
+	t.Parallel()
+
+	deps, _, _ := newFullDeps(t) // Membershipは空のまま
+	admin := &fakeWebhookAdmin{channelID: 12}
+	deps.WebhookAdmin = admin
+
+	mux := transport.NewMux(deps)
+	req := httptest.NewRequest(http.MethodPost, "/admin/webhooks/42/delete", nil)
+	req.Header.Set("X-User-Id", "1")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	if admin.deleted != 0 {
+		t.Fatalf("非メンバーの削除が実行されています: %d", admin.deleted)
+	}
+}
+
+func TestHistoryHandlerRendersAscendingOrder(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{1, 10}] = true
+	mux := transport.NewMux(deps)
+
+	for i, body := range []string{"古いメッセージ", "新しいメッセージ"} {
+		form := url.Values{"body": {body}, "client_msg_id": {"asc-" + strconv.Itoa(i)}}
+		req := httptest.NewRequest(http.MethodPost, "/channels/10/messages",
+			strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-User-Id", "1")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/channels/10/messages?limit=10", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	body := rec.Body.String()
+	// hx-swap="afterbegin"でひとかたまり挿入するUIの前提として、時系列昇順を要求します。
+	oldIdx := strings.Index(body, "古いメッセージ")
+	newIdx := strings.Index(body, "新しいメッセージ")
+	if oldIdx < 0 || newIdx < 0 || oldIdx > newIdx {
+		t.Fatalf("昇順になっていません: %s", body)
 	}
 }
 

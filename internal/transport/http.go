@@ -39,8 +39,31 @@ type membershipChecker interface {
 
 type webhookAdmin interface {
 	FindWebhookBotUserIDByChannel(ctx context.Context, channelID int64) (int64, error)
+	FindWebhookChannelID(ctx context.Context, id int64) (int64, error)
 	CreateWebhook(ctx context.Context, in store.CreateWebhookInput) (domain.Webhook, error)
 	DeleteWebhook(ctx context.Context, id int64) error
+}
+
+// requireMember 対象チャンネルのMembershipを検査し、通らない場合はレスポンスを書いてfalseを返します。
+// Webhook管理は投稿権限と同じ境界で守ります。本格的な管理者ロールはスコープ外です。
+func requireMember(deps Deps, w http.ResponseWriter, r *http.Request, channelID int64) bool {
+	if deps.Members == nil {
+		http.Error(w, "membership not wired", http.StatusInternalServerError)
+		return false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	ok, err := deps.Members.IsMember(ctx, currentUserID(r), channelID)
+	if err != nil {
+		deps.Logger.Error("membership check", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return false
+	}
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 // NewMux Chapter 5時点でのルーティングを返します。
@@ -89,6 +112,9 @@ func createWebhookAdminHandler(deps Deps) http.HandlerFunc {
 		channelID, err := strconv.ParseInt(r.FormValue("channel_id"), 10, 64)
 		if err != nil || channelID <= 0 {
 			http.Error(w, "invalid channel id", http.StatusBadRequest)
+			return
+		}
+		if !requireMember(deps, w, r, channelID) {
 			return
 		}
 		label := strings.TrimSpace(r.FormValue("label"))
@@ -143,6 +169,19 @@ func deleteWebhookAdminHandler(deps Deps) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
+		channelID, err := deps.WebhookAdmin.FindWebhookChannelID(ctx, id)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "webhook not found", http.StatusNotFound)
+				return
+			}
+			deps.Logger.Error("find webhook channel", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !requireMember(deps, w, r, channelID) {
+			return
+		}
 		err = deps.WebhookAdmin.DeleteWebhook(ctx, id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -340,9 +379,11 @@ func historyHandler(deps Deps) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// id降順で返ってきている前提で、テンプレ側は変えずに1件ずつレンダします。
-		for _, m := range msgs {
-			if err := deps.Renderer.Render(w, "message", m); err != nil {
+		// サービス層からはid降順で返ってきます。読み込みUIがhx-swap="afterbegin"で
+		// メッセージ一覧の先頭にひとかたまりで挿入するため、ここでは時系列昇順に
+		// 並べ替えてからレンダリングします。
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if err := deps.Renderer.Render(w, "message", msgs[i]); err != nil {
 				deps.Logger.Error("render message", "err", err)
 				return
 			}

@@ -146,16 +146,19 @@ func (s *Store) FindWebhookWithSecret(ctx context.Context, token string) (domain
 	return wh, nil
 }
 
-// ListWebhookSettingsByWorkspace workspace配下のWebhook管理表示用一覧を返します。
-func (s *Store) ListWebhookSettingsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.WebhookSetting, error) {
+// ListWebhookSettingsForUser workspace配下のうち、userが参加しているチャンネルの
+// Webhook管理表示用一覧だけを返します。Payload URLのtokenを含むため、
+// Snapshotと同じMembership境界で読み取りを絞ります。
+func (s *Store) ListWebhookSettingsForUser(ctx context.Context, workspaceID, userID int64) ([]domain.WebhookSetting, error) {
 	const q = `SELECT w.id, w.channel_id, w.token, w.label, w.bot_user_id, w.created_at,
 	                  c.name,
 	                  CASE WHEN w.secret <> '' THEN TRUE ELSE FALSE END
 	             FROM webhooks w
 	             JOIN channels c ON c.id = w.channel_id
+	             JOIN memberships m ON m.channel_id = w.channel_id AND m.user_id = ?
 	            WHERE c.workspace_id = ?
 	            ORDER BY w.created_at DESC, w.id DESC`
-	rows, err := s.db.QueryContext(ctx, q, workspaceID)
+	rows, err := s.db.QueryContext(ctx, q, userID, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list webhook settings: %w", err)
 	}
@@ -248,6 +251,20 @@ func (s *Store) validateWebhookBot(ctx context.Context, botUserID, channelID int
 		return fmt.Errorf("validate webhook bot: %w", err)
 	}
 	return nil
+}
+
+// FindWebhookChannelID Webhookが紐づくchannel IDを返します。
+// 削除前のMembership検査に使います。
+func (s *Store) FindWebhookChannelID(ctx context.Context, id int64) (int64, error) {
+	var channelID int64
+	err := s.db.QueryRowContext(ctx, `SELECT channel_id FROM webhooks WHERE id = ?`, id).Scan(&channelID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("find webhook channel: %w", err)
+	}
+	return channelID, nil
 }
 
 // DeleteWebhook Webhookを削除します。
@@ -348,6 +365,24 @@ func (s *Store) InsertMessage(ctx context.Context, in domain.Message) (domain.Me
 	out.ID = id
 	out.CreatedAt = time.Now().UTC()
 	return out, nil
+}
+
+// FindMessageByClientMsgID 冪等性キーの組み合わせでメッセージを1件取得します。
+// (channel_id, client_msg_id)のユニークインデックスがそのまま効きます。
+func (s *Store) FindMessageByClientMsgID(ctx context.Context, channelID int64, clientMsgID string) (domain.Message, error) {
+	const q = `SELECT id, channel_id, user_id, body, client_msg_id, created_at
+	             FROM messages
+	            WHERE channel_id = ? AND client_msg_id = ?`
+	var m domain.Message
+	err := s.db.QueryRowContext(ctx, q, channelID, clientMsgID).
+		Scan(&m.ID, &m.ChannelID, &m.UserID, &m.Body, &m.ClientMsgID, &m.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Message{}, ErrNotFound
+		}
+		return domain.Message{}, fmt.Errorf("find by client_msg_id: %w", err)
+	}
+	return m, nil
 }
 
 // IsMember userがchannelに参加しているかを判定します。

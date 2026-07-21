@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <title>slack-skeleton-go-htmx</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js" integrity="sha384-QILjBFil9/FrWrP1Y9Qh3vBfd7kiQE8h1BX9auwiVgsFlGwe4tEl7Y966BG178W6" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/hyperscript.org@0.9.13" integrity="sha384-5yQ5JTatiFEgeiEB4mfkRI3oTGtaNpbJGdcciZ4IEYFpLGt8yDsGAd7tKiMwnX9b" crossorigin="anonymous"></script>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
     aside { background: #f1f4f8; padding: 1rem; overflow-y: auto; }
@@ -36,7 +37,9 @@
     #composer { margin-top: 1rem; }
     #composer textarea { width: 100%; min-height: 4rem; }
     #toast-area { position: fixed; right: 1rem; bottom: 1rem; display: grid; gap: 0.5rem; }
-    .toast { background: #333; color: white; padding: 0.5rem 1rem; border-radius: 4px; }
+    .toast { background: #333; color: white; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; transition: opacity 0.4s; }
+    .toast.fade { opacity: 0; }
+    .load-history { align-self: start; background: #eef2f7; border: 1px solid #cfd6e2; border-radius: 4px; color: #344054; cursor: pointer; font: inherit; font-size: 0.85rem; margin: 0.25rem 0 0.5rem; padding: 0.3rem 0.6rem; }
   </style>
 </head>
 <body>

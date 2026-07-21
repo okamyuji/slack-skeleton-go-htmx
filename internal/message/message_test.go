@@ -53,17 +53,11 @@ func (f *fakeRepo) InsertMessage(_ context.Context, in domain.Message) (domain.M
 	return saved, nil
 }
 
-func (f *fakeRepo) RecentMessages(_ context.Context, channelID int64, limit int) ([]domain.Message, error) {
-	if f.historyErr != nil {
-		return nil, f.historyErr
+func (f *fakeRepo) FindMessageByClientMsgID(_ context.Context, channelID int64, clientMsgID string) (domain.Message, error) {
+	if m, ok := f.idemKey[clientMsgID]; ok && m.ChannelID == channelID {
+		return m, nil
 	}
-	var out []domain.Message
-	for i := len(f.stored) - 1; i >= 0 && len(out) < limit; i-- {
-		if f.stored[i].ChannelID == channelID {
-			out = append(out, f.stored[i])
-		}
-	}
-	return out, nil
+	return domain.Message{}, store.ErrNotFound
 }
 
 func (f *fakeRepo) MessagesBefore(_ context.Context, channelID, beforeID int64, limit int) ([]domain.Message, error) {
