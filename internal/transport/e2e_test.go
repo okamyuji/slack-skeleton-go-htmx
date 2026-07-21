@@ -85,6 +85,8 @@ func TestBrowserFormPostToWebSocketRoundTrip(t *testing.T) {
 		`hx-on::config-request`,
 		// form.reset()はhidden入力を戻さないため、成功時の明示クリアが必須です
 		`this.elements.client_msg_id.value = ''`,
+		// 本文編集時はキーを破棄し、次の送信を新規メッセージとして扱います
+		`oninput="this.form.elements.client_msg_id.value = ''"`,
 		// 履歴読み込みUIの配線も実ページに存在することを固定します
 		`過去のメッセージを読み込む`,
 		`hx-swap="afterbegin"`,

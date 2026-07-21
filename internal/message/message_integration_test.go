@@ -124,6 +124,24 @@ func TestSendRejectsNonMember_Integration(t *testing.T) {
 	}
 }
 
+func TestSendConflictOnDifferentBody_Integration(t *testing.T) {
+	db := openDB(t)
+	channelID, userID := seed(t, db)
+	svc := message.New(store.New(db))
+
+	if _, _, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: channelID, UserID: userID, Body: "原本", ClientMsgID: "conflict-int-key",
+	}); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	_, _, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: channelID, UserID: userID, Body: "編集後", ClientMsgID: "conflict-int-key",
+	})
+	if !errors.Is(err, message.ErrIdempotencyConflict) {
+		t.Fatalf("want ErrIdempotencyConflict, got %v", err)
+	}
+}
+
 func TestSendDuplicateAfterManyNewerMessages_Integration(t *testing.T) {
 	db := openDB(t)
 	channelID, userID := seed(t, db)

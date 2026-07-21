@@ -83,6 +83,8 @@
     失敗時は値を保つことで再送に同じキーを使い、成功時にだけ空へ戻して
     次回送信時に新しい値を採番します。
     form.reset()はtype="hidden"を初期値に戻さないため、明示的にクリアします。
+    同じキーは同一内容の再送だけに使う契約なので、失敗後に本文を編集したら
+    oninputでキーを破棄し、次の送信を新規メッセージとして扱います。
   -->
   <form id="composer-{{.Channel.ID}}"
         hx-post="/channels/{{.Channel.ID}}/messages"
@@ -90,7 +92,8 @@
         hx-on::config-request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.parameters.client_msg_id = f.value;"
         hx-on::after-request="if (event.detail.successful) { this.reset(); this.elements.client_msg_id.value = ''; }">
     <input type="hidden" name="client_msg_id" value="">
-    <textarea name="body" placeholder="メッセージを入力..."></textarea>
+    <textarea name="body" placeholder="メッセージを入力..."
+              oninput="this.form.elements.client_msg_id.value = ''"></textarea>
     <button type="submit">送信</button>
   </form>
 </section>

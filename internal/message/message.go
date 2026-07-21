@@ -18,6 +18,10 @@ var ErrInvalidInput = errors.New("message: invalid input")
 // ErrNotMember 投稿者がチャンネルに参加していないことを表します。
 var ErrNotMember = errors.New("message: not a member")
 
+// ErrIdempotencyConflict 同じclient_msg_idが異なる内容の送信に使われたことを表します。
+// 同じキーは同一内容の再送だけに使えるという契約の違反です。
+var ErrIdempotencyConflict = errors.New("message: client_msg_id conflict")
+
 // Repository messageサービスが必要とするデータアクセスメソッドを抽象化します。
 // 各層をinterfaceで疎結合に繋ぐことで、テスト時にfakeを差し込みやすくします。
 type Repository interface {
@@ -88,6 +92,11 @@ func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool,
 	existing, err := s.repo.FindMessageByClientMsgID(ctx, in.ChannelID, cid)
 	if err != nil {
 		return domain.Message{}, false, fmt.Errorf("send: find existing: %w", err)
+	}
+	// 同じキーで内容が違う送信を成功扱いにすると、編集後の本文が保存も配信も
+	// されないまま無言で消えます。原本と比較し、不一致は衝突として拒否します。
+	if existing.UserID != in.UserID || existing.Body != body {
+		return domain.Message{}, false, ErrIdempotencyConflict
 	}
 	return existing, true, nil
 }

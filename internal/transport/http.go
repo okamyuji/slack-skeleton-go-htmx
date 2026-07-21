@@ -238,6 +238,8 @@ func webhookHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, message.ErrInvalidInput):
 			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, message.ErrIdempotencyConflict):
+			http.Error(w, "client_msg_id conflict", http.StatusConflict)
 		default:
 			deps.Logger.Error("webhook", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -343,6 +345,8 @@ func postMessageHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, message.ErrNotMember):
 			http.Error(w, "forbidden", http.StatusForbidden)
+		case errors.Is(err, message.ErrIdempotencyConflict):
+			http.Error(w, "client_msg_id conflict", http.StatusConflict)
 		default:
 			deps.Logger.Error("send message", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

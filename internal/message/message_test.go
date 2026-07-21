@@ -209,6 +209,44 @@ func TestSendPropagatesInsertError(t *testing.T) {
 	}
 }
 
+func TestSendRejectsIdempotencyConflict(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	repo.members[[2]int64{1, 1}] = true
+	repo.members[[2]int64{2, 1}] = true
+	svc := message.New(repo)
+
+	if _, _, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: 1, UserID: 1, Body: "原本", ClientMsgID: "conflict-key",
+	}); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+
+	// 同じキーで本文を変えた再送は成功扱いにせず衝突として拒否します
+	_, _, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: 1, UserID: 1, Body: "編集後の本文", ClientMsgID: "conflict-key",
+	})
+	if !errors.Is(err, message.ErrIdempotencyConflict) {
+		t.Fatalf("body mismatch: want ErrIdempotencyConflict, got %v", err)
+	}
+
+	// 同じキーを別ユーザーが使った場合も衝突です
+	_, _, err = svc.Send(context.Background(), message.SendInput{
+		ChannelID: 1, UserID: 2, Body: "原本", ClientMsgID: "conflict-key",
+	})
+	if !errors.Is(err, message.ErrIdempotencyConflict) {
+		t.Fatalf("user mismatch: want ErrIdempotencyConflict, got %v", err)
+	}
+
+	// 同一内容の純粋な再送はこれまでどおり冪等に成功します
+	_, dup, err := svc.Send(context.Background(), message.SendInput{
+		ChannelID: 1, UserID: 1, Body: "原本", ClientMsgID: "conflict-key",
+	})
+	if err != nil || !dup {
+		t.Fatalf("pure retry: dup=%v err=%v", dup, err)
+	}
+}
+
 func TestHistoryRejectsNonMember(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()

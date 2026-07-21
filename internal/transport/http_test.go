@@ -285,6 +285,31 @@ func TestPostMessageMarksDuplicateOnSecondSend(t *testing.T) {
 	}
 }
 
+func TestPostMessageConflictOnEditedRetry(t *testing.T) {
+	t.Parallel()
+
+	deps, repo, _ := newFullDeps(t)
+	repo.members[[2]int64{1, 10}] = true
+	mux := transport.NewMux(deps)
+	send := func(body string) *httptest.ResponseRecorder {
+		form := url.Values{"body": {body}, "client_msg_id": {"edited-retry-key"}}
+		req := httptest.NewRequest(http.MethodPost, "/channels/10/messages",
+			strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-User-Id", "1")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := send("最初の本文"); rec.Code != http.StatusNoContent {
+		t.Fatalf("first status=%d", rec.Code)
+	}
+	// 同じキーで本文を変えた再送は無言の204ではなく409で拒否します
+	if rec := send("編集した本文"); rec.Code != http.StatusConflict {
+		t.Fatalf("edited retry status=%d, want 409", rec.Code)
+	}
+}
+
 func TestWebhookHandlerSuccess204(t *testing.T) {
 	t.Parallel()
 
