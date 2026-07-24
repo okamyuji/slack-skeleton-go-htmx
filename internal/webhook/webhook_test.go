@@ -5,7 +5,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -306,4 +308,61 @@ func (f *fakeMessageSender) Send(_ context.Context, in message.SendInput) (domai
 		ClientMsgID: in.ClientMsgID,
 		CreatedAt:   time.Now().UTC(),
 	}, f.duplicate, nil
+}
+
+func TestLongGitHubPushIsTruncatedNotRejected(t *testing.T) {
+	t.Parallel()
+
+	// 4000文字の上限を確実に超えるpush payloadを組み立てます。
+	commits := make([]map[string]string, 0, 200)
+	for i := range 200 {
+		commits = append(commits, map[string]string{
+			"id":      fmt.Sprintf("%040d", i),
+			"message": strings.Repeat("あ", 60),
+		})
+	}
+	payload, err := json.Marshal(map[string]any{
+		"ref":        "refs/heads/main",
+		"repository": map[string]string{"name": "repo"},
+		"pusher":     map[string]string{"name": "alice"},
+		"commits":    commits,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	sender := &fakeMessageSender{}
+	svc := New(&fakeWebhookStore{}, sender)
+
+	headers := http.Header{}
+	headers.Set("X-GitHub-Event", "push")
+	headers.Set("X-GitHub-Delivery", "delivery-long")
+
+	// GitHubは失敗した配信を自動再送しないため、長すぎる本文を400で落とすと
+	// その通知は永久に届きません。切り詰めて投稿することを要求します。
+	if _, _, err := svc.HandlePayload(context.Background(), "tok", headers, payload); err != nil {
+		t.Fatalf("長いpushが拒否されました: %v", err)
+	}
+	got := []rune(sender.in.Body)
+	if len(got) != maxBodyRunes {
+		t.Fatalf("上限まで切り詰められていません: %d文字 (上限%d)", len(got), maxBodyRunes)
+	}
+	if !strings.HasSuffix(sender.in.Body, "…") {
+		t.Fatal("切り詰めたことが本文から分かりません")
+	}
+}
+
+func TestShortPayloadIsNotTruncated(t *testing.T) {
+	t.Parallel()
+
+	sender := &fakeMessageSender{}
+	svc := New(&fakeWebhookStore{}, sender)
+	body := []byte(`{"text":"ふつうの通知"}`)
+
+	if _, _, err := svc.HandlePayload(context.Background(), "tok", http.Header{}, body); err != nil {
+		t.Fatalf("HandlePayload: %v", err)
+	}
+	if sender.in.Body != "ふつうの通知" {
+		t.Fatalf("本文が変わっています: %q", sender.in.Body)
+	}
 }

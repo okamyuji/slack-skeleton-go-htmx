@@ -71,6 +71,14 @@ func TestInsertMessageAndRetrieve(t *testing.T) {
 	if found.Body != in.Body || found.ClientMsgID != in.ClientMsgID {
 		t.Fatalf("got %+v, want body=%q client=%q", found, in.Body, in.ClientMsgID)
 	}
+	// InsertMessageが返す作成時刻は、実際に保存された値と一致しなければなりません。
+	// ずれると、送信直後にWebSocketで配るフラグメントと履歴の再読込で表示が食い違います。
+	if !got.CreatedAt.Equal(found.CreatedAt) {
+		t.Fatalf("CreatedAtが保存値と不一致: insert=%v stored=%v", got.CreatedAt, found.CreatedAt)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAtがゼロ値です")
+	}
 }
 
 func TestDuplicateClientMsgIDIsRejected(t *testing.T) {

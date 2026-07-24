@@ -210,9 +210,11 @@ func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domai
 	if err := s.validateWebhookBot(ctx, in.BotUserID, in.ChannelID); err != nil {
 		return domain.Webhook{}, err
 	}
-	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id)
-	           VALUES (?, ?, ?, ?, ?)`
-	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID)
+	// created_atをDEFAULT任せにしない理由はInsertMessageと同じです。
+	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id, created_at)
+	           VALUES (?, ?, ?, ?, ?, ?)`
+	createdAt := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID, createdAt)
 	if err != nil {
 		var mErr *mysql.MySQLError
 		if errors.As(err, &mErr) && mErr.Number == 1062 {
@@ -230,7 +232,7 @@ func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domai
 		Token:     in.Token,
 		Label:     in.Label,
 		BotUserID: in.BotUserID,
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: createdAt,
 	}, nil
 }
 
@@ -326,10 +328,17 @@ func (s *Store) MessagesBefore(ctx context.Context, channelID, beforeID int64, l
 
 // InsertMessage 新規メッセージを保存し、採番されたIDと作成時刻を返します。
 // 同じ(channelID, clientMsgID)が既に存在する場合は ErrDuplicate を返します。
+//
+// created_atはDBのDEFAULTに任せず、アプリで決めた値を明示的に渡します。
+// DEFAULTに任せると、ここで返す時刻はアプリが別途採った現在時刻になり、
+// 実際に保存された値と一致する保証がありません。送信直後にWebSocketで配る
+// フラグメントと、あとで履歴を読み直したときの表示で時刻がずれます。
+// 明示的に渡せば、再SELECTを足さずに両者を必ず一致させられます。
 func (s *Store) InsertMessage(ctx context.Context, in domain.Message) (domain.Message, error) {
-	const q = `INSERT INTO messages (channel_id, user_id, body, client_msg_id)
-	           VALUES (?, ?, ?, ?)`
-	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.UserID, in.Body, in.ClientMsgID)
+	const q = `INSERT INTO messages (channel_id, user_id, body, client_msg_id, created_at)
+	           VALUES (?, ?, ?, ?, ?)`
+	createdAt := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.UserID, in.Body, in.ClientMsgID, createdAt)
 	if err != nil {
 		var mErr *mysql.MySQLError
 		if errors.As(err, &mErr) && mErr.Number == 1062 {
@@ -343,7 +352,7 @@ func (s *Store) InsertMessage(ctx context.Context, in domain.Message) (domain.Me
 	}
 	out := in
 	out.ID = id
-	out.CreatedAt = time.Now().UTC()
+	out.CreatedAt = createdAt
 	return out, nil
 }
 

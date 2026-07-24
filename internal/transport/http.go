@@ -373,8 +373,17 @@ func historyHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "invalid channel id", http.StatusBadRequest)
 			return
 		}
-		beforeID, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		beforeID, err := optionalInt64(r.URL.Query().Get("before"))
+		if err != nil {
+			http.Error(w, "invalid before", http.StatusBadRequest)
+			return
+		}
+		limit64, err := optionalInt64(r.URL.Query().Get("limit"))
+		if err != nil {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit := int(limit64)
 
 		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
@@ -401,6 +410,21 @@ func historyHandler(deps Deps) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+// optionalInt64 省略可能な数値クエリを読みます。
+// 未指定は0(既定の振る舞い)として扱い、値があるのに数値として読めない場合だけ
+// エラーを返します。黙って0に倒すと、?before=abc のような打ち間違いが
+// 「最新から取得」に化けて、呼び出し側が誤りに気づけなくなるためです。
+func optionalInt64(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return v, nil
 }
 
 // currentUserID X-User-Idヘッダから現在ユーザーを取得します。

@@ -141,11 +141,37 @@ func randomClientMsgID() (string, error) {
 	return "wh-" + hex.EncodeToString(b), nil
 }
 
+// maxBodyRunes 投稿本文の上限です。message.Serviceが同じ値で検査するため、
+// ここで超えたまま渡すとErrInvalidInputになり400を返すことになります。
+// GitHubは失敗した配信を自動では再送しないので、400にするとその通知は
+// 二度と届きません。長すぎる本文は落とさず切り詰めて投稿します。
+const maxBodyRunes = 4000
+
 func payloadText(headers http.Header, body []byte) (string, error) {
+	var (
+		text string
+		err  error
+	)
 	if strings.EqualFold(headers.Get("X-GitHub-Event"), "push") {
-		return formatGitHubPush(body)
+		text, err = formatGitHubPush(body)
+	} else {
+		text, err = parseGenericPayload(body)
 	}
-	return parseGenericPayload(body)
+	if err != nil {
+		return "", err
+	}
+	return truncateRunes(text, maxBodyRunes), nil
+}
+
+// truncateRunes 本文をルーン単位でn文字までに収めます。
+// 切り詰めたことが読み手に分かるよう、末尾を省略記号に置き換えます。
+func truncateRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	const ellipsis = "…"
+	return string(runes[:n-len([]rune(ellipsis))]) + ellipsis
 }
 
 func formatGitHubPush(body []byte) (string, error) {
