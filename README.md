@@ -2,7 +2,7 @@
 
 Slackのコアにある「永続化されたチャットの順序付きリアルタイム配信」だけを、Goの標準ライブラリと[htmx](https://htmx.org/)で再実装した教材プロジェクトです。
 
-各章は同じリポジトリ上のブランチに対応します。ブランチを切り替えるとその章までの最小コードを写経できます。
+**写経や読み比べは`main`を基準にしてください。** 記事本文が説明するコードは`main`の最新版です。各章の完成形はタグとして凍結してありますが、公開前のレビューで入れた修正(認可境界、冪等キーの解決方法、配信の継続性など)は`main`にしか含まれません。
 
 外部Go依存は2つだけです。
 
@@ -55,9 +55,9 @@ Slack内部の各コンポーネントとの対応です。
 | Real-Time API | `internal/transport`のWebSocketハンドラ |
 | Web API | `net/http.ServeMux`配下のハンドラ |
 
-## 章とブランチ
+## 章とタグ
 
-| 章 | ブランチ / タグ | 主な内容 |
+| 章 | タグ | 主な内容 |
 |---|---|---|
 | 1 | `ch01-skeleton` | 骨格、Dockerfile、`compose.yml`、pre-commit、gitleaks、govulncheck、CI、品質ゲート |
 | 2 | `ch02-domain` | ドメイン型、自作マイグレータ、`internal/store`のMySQL接続、testcontainers統合テスト |
@@ -65,8 +65,16 @@ Slack内部の各コンポーネントとの対応です。
 | 4 | `ch04-send` | POST `/channels/:id/messages`、冪等性、カーソルベース履歴取得、Repositoryインターフェイス |
 | 5 | `ch05-hub-ws` | in-process Hub、`/ws`ハンドラ、HTMLフラグメント配信 |
 | 6 | `ch06-toast` | メンション含むメッセージ受信時の画面内トースト、seedデータ |
+| 7 | `ch07-incoming-webhook` | Incoming Webhook、HMAC-SHA256署名検証、GitHub push payloadの変換 |
 
-各ブランチには同名のtagも打ってあるので、`git checkout ch04-send`または`git checkout ch04-send`(tag)で章のスナップショットを取り出せます。
+執筆過程のスナップショットは`git checkout ch04-send`のようにタグで取り出せます。タグは打った時点で凍結してあり、以降の修正は入りません。
+
+## ブランチ運用
+
+- `main`が唯一の正典です。記事本文も`main`を指しています
+- 章スナップショットはタグだけで表現します。章ごとの常設ブランチは置きません
+- 変更は作業ブランチを切ってPull Request経由で`main`へ入れます。`main`への直接pushはしません
+- CI(`.github/workflows/ci.yml`)は全ブランチのpushとPull Requestで動きます
 
 ## 動作要件
 
