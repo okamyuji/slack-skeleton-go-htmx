@@ -184,6 +184,122 @@ func (f *fakeWebhookAdmin) DeleteWebhook(_ context.Context, id int64) error {
 	return nil
 }
 
+func TestUnwiredDependenciesPreserveResponses(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tests := []struct {
+		name        string
+		method      string
+		target      string
+		body        string
+		contentType string
+		deps        func(*testing.T) transport.Deps
+		wantStatus  int
+		wantBody    string
+	}{
+		{
+			name:       "root without snapshot",
+			method:     http.MethodGet,
+			target:     "/",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusOK,
+			wantBody:   "slack-skeleton-go-htmx: snapshot未配線",
+		},
+		{
+			name:       "workspace snapshot without service",
+			method:     http.MethodGet,
+			target:     "/workspaces/1/snapshot",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "snapshot service not wired\n",
+		},
+		{
+			name:        "post message without service",
+			method:      http.MethodPost,
+			target:      "/channels/1/messages",
+			body:        "body=hello&client_msg_id=unwired",
+			contentType: "application/x-www-form-urlencoded",
+			deps:        func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus:  http.StatusInternalServerError,
+			wantBody:    "messages not wired\n",
+		},
+		{
+			name:       "message history without service",
+			method:     http.MethodGet,
+			target:     "/channels/1/messages",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "messages not wired\n",
+		},
+		{
+			name:       "incoming webhook without service",
+			method:     http.MethodPost,
+			target:     "/api/webhooks/x",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "webhooks not wired\n",
+		},
+		{
+			name:       "create webhook without admin",
+			method:     http.MethodPost,
+			target:     "/admin/webhooks",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "webhook admin not wired\n",
+		},
+		{
+			name:       "delete webhook without admin",
+			method:     http.MethodPost,
+			target:     "/admin/webhooks/1/delete",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "webhook admin not wired\n",
+		},
+		{
+			name:       "websocket without hub",
+			method:     http.MethodGet,
+			target:     "/ws?channel_ids=1",
+			deps:       func(*testing.T) transport.Deps { return transport.Deps{Logger: logger} },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "hub not wired\n",
+		},
+		{
+			name:        "create webhook without membership checker",
+			method:      http.MethodPost,
+			target:      "/admin/webhooks",
+			body:        "channel_id=12",
+			contentType: "application/x-www-form-urlencoded",
+			deps: func(t *testing.T) transport.Deps {
+				deps, _, _ := newFullDeps(t)
+				deps.WebhookAdmin = &fakeWebhookAdmin{}
+				deps.Members = nil
+				return deps
+			},
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "membership not wired\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.target, strings.NewReader(tt.body))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			rec := httptest.NewRecorder()
+			transport.NewMux(tt.deps(t)).ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status=%d, want %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Body.String(); got != tt.wantBody {
+				t.Errorf("body=%q, want %q", got, tt.wantBody)
+			}
+		})
+	}
+}
+
 func TestPostMessageRequiresClientMsgID(t *testing.T) {
 	t.Parallel()
 
