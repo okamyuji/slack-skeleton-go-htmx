@@ -1,4 +1,4 @@
-.PHONY: help build run test fmt vet lint gate gate-integration up down migrate
+.PHONY: help build run test fmt vet lint gate gate-integration mutate up down migrate
 
 help:
 	@echo "make build               アプリをビルドします"
@@ -9,6 +9,7 @@ help:
 	@echo "make lint                staticcheckとgolangci-lintを走らせます"
 	@echo "make gate                品質ゲート(scripts/quality-gate.sh)を実行します"
 	@echo "make gate-integration    統合テスト込みの品質ゲートを実行します"
+	@echo "make mutate              mutation testingでテストの検出力を測ります(任意)"
 	@echo "make up                  compose.ymlでMySQLとアプリを起動します"
 	@echo "make down                composeで起動したスタックを停止します"
 	@echo "make migrate             ローカルMySQLにマイグレーションを適用します"
@@ -37,6 +38,13 @@ gate:
 
 gate-integration:
 	WITH_INTEGRATION=1 ./scripts/quality-gate.sh
+
+# コードをわざと書き換えて、テストがその変更に気づけるかを測ります。
+# 実行時間が長く結果も環境で揺れるため、品質ゲートとCIには入れていません。
+# 対象を絞って走らせてください: make mutate PKG=./internal/hub
+mutate:
+	@command -v gremlins >/dev/null || (echo "gremlinsが必要です: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
+	gremlins unleash $(or $(PKG),./internal/message)
 
 up:
 	docker compose up -d --build

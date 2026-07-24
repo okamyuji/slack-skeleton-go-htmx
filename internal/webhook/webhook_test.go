@@ -352,6 +352,27 @@ func TestLongGitHubPushIsTruncatedNotRejected(t *testing.T) {
 	}
 }
 
+func TestBodyAtExactLimitIsNotTruncated(t *testing.T) {
+	t.Parallel()
+
+	// ちょうど上限の本文は切り詰めてはいけません。
+	// 境界を1つ内側にずらす変更(<= を < にするなど)をここで検出します。
+	exact := strings.Repeat("あ", maxBodyRunes)
+	payload, err := json.Marshal(map[string]string{"text": exact})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	sender := &fakeMessageSender{}
+	svc := New(&fakeWebhookStore{}, sender)
+	if _, _, err := svc.HandlePayload(context.Background(), "tok", http.Header{}, payload); err != nil {
+		t.Fatalf("HandlePayload: %v", err)
+	}
+	if sender.in.Body != exact {
+		t.Fatalf("上限ちょうどの本文が変更されました: %d文字", len([]rune(sender.in.Body)))
+	}
+}
+
 func TestShortPayloadIsNotTruncated(t *testing.T) {
 	t.Parallel()
 
