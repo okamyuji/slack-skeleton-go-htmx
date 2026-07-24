@@ -1,5 +1,5 @@
 // Package main slack-skeleton-go-htmxの起動エントリポイントです。
-// Chapter 6時点ではSnapshotとMessageに加え、Hubを配線します。
+// Snapshot、Message、Hub、Incoming Webhookを配線します。
 package main
 
 import (

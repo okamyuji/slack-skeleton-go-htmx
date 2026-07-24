@@ -106,7 +106,7 @@ func execScript(ctx context.Context, db *sql.DB, script string) error {
 			continue
 		}
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("stmt %q: %w", truncate(stmt, 80), err)
+			return fmt.Errorf("stmt %q: %w", truncateForError(stmt, 80), err)
 		}
 	}
 	return nil
@@ -137,7 +137,8 @@ func stripComments(s string) string {
 	return strings.Join(out, "\n")
 }
 
-func truncate(s string, n int) string {
+// truncateForError エラー表示用のSQL文をバイト単位で最大nバイトまで切ります。
+func truncateForError(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}

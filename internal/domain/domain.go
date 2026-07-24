@@ -1,5 +1,6 @@
 // Package domain 本記事で扱う最小ドメインモデルを定義します。
-// Workspace、User、Channel、Membership、Messageの5型のみで、
+// Workspace、User、Channel、Membership、Message、Webhook、
+// WebhookWithSecret、WebhookSettingの8型のみで、
 // 認証や認可といった本記事のスコープ外の責務は持ちません。
 package domain
 

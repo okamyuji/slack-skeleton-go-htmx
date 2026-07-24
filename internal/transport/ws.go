@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -25,15 +24,14 @@ type wsClient struct {
 
 // Send Hubから呼ばれる送信メソッドです。
 func (c *wsClient) Send(ctx context.Context, payload []byte) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, handlerTimeout)
 	defer cancel()
 	return c.conn.Write(ctx, websocket.MessageText, payload)
 }
 
 func wsHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.Hub == nil {
-			http.Error(w, "hub not wired", http.StatusInternalServerError)
+		if !requireWired(w, "hub", deps.Hub != nil) {
 			return
 		}
 		channelIDs := parseChannelIDs(r.URL.Query().Get("channel_ids"))
@@ -41,15 +39,14 @@ func wsHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "channel_ids required", http.StatusBadRequest)
 			return
 		}
-		if deps.Members == nil {
-			http.Error(w, "membership not wired", http.StatusInternalServerError)
+		if !requireWired(w, "membership", deps.Members != nil) {
 			return
 		}
 
 		// 投稿側と同じMembership境界を購読側にも適用します。
 		// WebSocketへ昇格すると以降はHTTPステータスを返せないため、Acceptの前に検査します。
 		userID := currentUserID(r)
-		memberCtx, cancelMember := context.WithTimeout(r.Context(), 5*time.Second)
+		memberCtx, cancelMember := context.WithTimeout(r.Context(), handlerTimeout)
 		for _, id := range channelIDs {
 			ok, err := deps.Members.IsMember(memberCtx, userID, id)
 			if err != nil {
@@ -142,6 +139,7 @@ func fragmentForMessage(renderer messageFragmentRenderer, msg domain.Message) ([
 	return buf.Bytes(), nil
 }
 
+// truncate 表示する本文をルーン単位で最大n文字まで切ります。
 func truncate(s string, n int) string {
 	if len([]rune(s)) <= n {
 		return s

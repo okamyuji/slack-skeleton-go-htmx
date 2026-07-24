@@ -20,6 +20,8 @@ import (
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/webhook"
 )
 
+const handlerTimeout = 5 * time.Second
+
 // Deps ハンドラ層が必要とする依存をまとめます。
 type Deps struct {
 	Logger       *slog.Logger
@@ -44,14 +46,22 @@ type webhookAdmin interface {
 	DeleteWebhook(ctx context.Context, id int64) error
 }
 
+// requireWired 必要な依存が未配線の場合に既存の500応答を書いてfalseを返します。
+func requireWired(w http.ResponseWriter, name string, wired bool) bool {
+	if wired {
+		return true
+	}
+	http.Error(w, name+" not wired", http.StatusInternalServerError)
+	return false
+}
+
 // requireMember 対象チャンネルのMembershipを検査し、通らない場合はレスポンスを書いてfalseを返します。
 // Webhook管理は投稿権限と同じ境界で守ります。本格的な管理者ロールはスコープ外です。
 func requireMember(deps Deps, w http.ResponseWriter, r *http.Request, channelID int64) bool {
-	if deps.Members == nil {
-		http.Error(w, "membership not wired", http.StatusInternalServerError)
+	if !requireWired(w, "membership", deps.Members != nil) {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 	ok, err := deps.Members.IsMember(ctx, currentUserID(r), channelID)
 	if err != nil {
@@ -66,7 +76,7 @@ func requireMember(deps Deps, w http.ResponseWriter, r *http.Request, channelID 
 	return true
 }
 
-// NewMux Chapter 5時点でのルーティングを返します。
+// NewMux Snapshot、Message、WebSocket、Incoming Webhookのルーティングを返します。
 func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -101,8 +111,7 @@ func NewMux(deps Deps) *http.ServeMux {
 
 func createWebhookAdminHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.WebhookAdmin == nil {
-			http.Error(w, "webhook admin not wired", http.StatusInternalServerError)
+		if !requireWired(w, "webhook admin", deps.WebhookAdmin != nil) {
 			return
 		}
 		if err := r.ParseForm(); err != nil {
@@ -128,7 +137,7 @@ func createWebhookAdminHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 		botUserID, err := deps.WebhookAdmin.FindWebhookBotUserIDByChannel(ctx, channelID)
 		if err != nil {
@@ -158,8 +167,7 @@ func createWebhookAdminHandler(deps Deps) http.HandlerFunc {
 
 func deleteWebhookAdminHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.WebhookAdmin == nil {
-			http.Error(w, "webhook admin not wired", http.StatusInternalServerError)
+		if !requireWired(w, "webhook admin", deps.WebhookAdmin != nil) {
 			return
 		}
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -167,7 +175,7 @@ func deleteWebhookAdminHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "invalid webhook id", http.StatusBadRequest)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 		channelID, err := deps.WebhookAdmin.FindWebhookChannelID(ctx, id)
 		if err != nil {
@@ -198,8 +206,7 @@ func deleteWebhookAdminHandler(deps Deps) http.HandlerFunc {
 
 func webhookHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.Webhooks == nil {
-			http.Error(w, "webhooks not wired", http.StatusInternalServerError)
+		if !requireWired(w, "webhooks", deps.Webhooks != nil) {
 			return
 		}
 		token := r.PathValue("token")
@@ -215,7 +222,7 @@ func webhookHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 
 		saved, duplicate, err := deps.Webhooks.HandlePayload(ctx, token, r.Header, body)
@@ -260,11 +267,10 @@ func snapshotHandler(deps Deps) http.HandlerFunc {
 }
 
 func serveSnapshot(deps Deps, w http.ResponseWriter, r *http.Request, workspaceID, userID int64) {
-	if deps.Snapshot == nil || deps.Renderer == nil {
-		http.Error(w, "snapshot service not wired", http.StatusInternalServerError)
+	if !requireWired(w, "snapshot service", deps.Snapshot != nil && deps.Renderer != nil) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
 	view, err := deps.Snapshot.Load(ctx, workspaceID, userID)
@@ -298,8 +304,7 @@ func requestBaseURL(r *http.Request) string {
 
 func postMessageHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.Messages == nil {
-			http.Error(w, "messages not wired", http.StatusInternalServerError)
+		if !requireWired(w, "messages", deps.Messages != nil) {
 			return
 		}
 		channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -317,7 +322,7 @@ func postMessageHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "client_msg_id required", http.StatusBadRequest)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 
 		saved, duplicate, err := deps.Messages.Send(ctx, message.SendInput{
@@ -356,8 +361,7 @@ func postMessageHandler(deps Deps) http.HandlerFunc {
 
 func historyHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.Messages == nil || deps.Renderer == nil {
-			http.Error(w, "messages not wired", http.StatusInternalServerError)
+		if !requireWired(w, "messages", deps.Messages != nil && deps.Renderer != nil) {
 			return
 		}
 		channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -368,7 +372,7 @@ func historyHandler(deps Deps) http.HandlerFunc {
 		beforeID, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 
 		msgs, err := deps.Messages.History(ctx, currentUserID(r), channelID, beforeID, limit)

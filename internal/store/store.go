@@ -20,6 +20,9 @@ var ErrDuplicate = errors.New("store: duplicate")
 // ErrNotFound 指定された条件に一致するレコードが存在しないことを表します。
 var ErrNotFound = errors.New("store: not found")
 
+// webhookBotDisplayName は migrations/0003_webhooks.up.sql が作成するbotの表示名と対応します。
+const webhookBotDisplayName = "webhook-bot"
+
 // Open DSNからMySQLへの接続を開きます。
 // 設定は最小限で、本記事の範囲では本番チューニングを行いません。
 func Open(dsn string) (*sql.DB, error) {
@@ -36,6 +39,18 @@ func Open(dsn string) (*sql.DB, error) {
 // Store クエリの集合を1つに束ねた薄いリポジトリです。
 type Store struct {
 	db *sql.DB
+}
+
+func scanRows[T any](rows *sql.Rows, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	var out []T
+	for rows.Next() {
+		value, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, rows.Err()
 }
 
 // CreateWebhookInput Webhook作成に必要な値です。
@@ -64,15 +79,13 @@ func (s *Store) ListChannelsByWorkspace(ctx context.Context, workspaceID int64) 
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out []domain.Channel
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (domain.Channel, error) {
 		var c domain.Channel
 		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.CreatedAt); err != nil {
-			return nil, err
+			return domain.Channel{}, err
 		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
+		return c, nil
+	})
 }
 
 // FindWorkspaceName Workspaceの表示名を返します。
@@ -102,15 +115,13 @@ func (s *Store) ListChannelsForUser(ctx context.Context, workspaceID, userID int
 		return nil, fmt.Errorf("list channels for user: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out []domain.Channel
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (domain.Channel, error) {
 		var c domain.Channel
 		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.CreatedAt); err != nil {
-			return nil, err
+			return domain.Channel{}, err
 		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
+		return c, nil
+	})
 }
 
 // ListUsersByWorkspace 対象Workspaceのユーザーを表示名順で返します。
@@ -124,15 +135,13 @@ func (s *Store) ListUsersByWorkspace(ctx context.Context, workspaceID int64) ([]
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out []domain.User
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (domain.User, error) {
 		var u domain.User
 		if err := rows.Scan(&u.ID, &u.WorkspaceID, &u.DisplayName, &u.IsBot, &u.CreatedAt); err != nil {
-			return nil, err
+			return domain.User{}, err
 		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
+		return u, nil
+	})
 }
 
 // FindWebhookWithSecret tokenに対応するWebhookをSecret込みで取得します。
@@ -177,8 +186,7 @@ func (s *Store) ListWebhookSettingsForUser(ctx context.Context, workspaceID, use
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []domain.WebhookSetting
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (domain.WebhookSetting, error) {
 		var wh domain.WebhookSetting
 		if err := rows.Scan(
 			&wh.ID,
@@ -190,11 +198,10 @@ func (s *Store) ListWebhookSettingsForUser(ctx context.Context, workspaceID, use
 			&wh.ChannelName,
 			&wh.HasSecret,
 		); err != nil {
-			return nil, err
+			return domain.WebhookSetting{}, err
 		}
-		out = append(out, wh)
-	}
-	return out, rows.Err()
+		return wh, nil
+	})
 }
 
 // FindWebhookBotUserIDByChannel channelと同じworkspaceにいるWebhook用botを返します。
@@ -204,11 +211,11 @@ func (s *Store) FindWebhookBotUserIDByChannel(ctx context.Context, channelID int
 	             JOIN channels c ON c.workspace_id = u.workspace_id
 	             JOIN memberships m ON m.user_id = u.id AND m.channel_id = c.id
 	            WHERE c.id = ?
-	              AND u.display_name = 'webhook-bot'
+	              AND u.display_name = ?
 	              AND u.is_bot = TRUE
 	            LIMIT 1`
 	var id int64
-	err := s.db.QueryRowContext(ctx, q, channelID).Scan(&id)
+	err := s.db.QueryRowContext(ctx, q, channelID, webhookBotDisplayName).Scan(&id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
@@ -299,25 +306,7 @@ func (s *Store) DeleteWebhook(ctx context.Context, id int64) error {
 // RecentMessages channelIDの直近メッセージをid降順で最大limit件返します。
 // 表示は時系列昇順で行うため、呼び出し側で並べ替える前提です。
 func (s *Store) RecentMessages(ctx context.Context, channelID int64, limit int) ([]domain.Message, error) {
-	const q = `SELECT id, channel_id, user_id, body, client_msg_id, created_at
-	             FROM messages
-	            WHERE channel_id = ?
-	            ORDER BY id DESC
-	            LIMIT ?`
-	rows, err := s.db.QueryContext(ctx, q, channelID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("recent messages: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var out []domain.Message
-	for rows.Next() {
-		var m domain.Message
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.UserID, &m.Body, &m.ClientMsgID, &m.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
+	return s.MessagesBefore(ctx, channelID, 0, limit)
 }
 
 // MessagesBefore カーソル(beforeID)より古いメッセージをid降順で返します。
@@ -346,15 +335,13 @@ func (s *Store) MessagesBefore(ctx context.Context, channelID, beforeID int64, l
 		return nil, fmt.Errorf("messages before: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out []domain.Message
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (domain.Message, error) {
 		var m domain.Message
 		if err := rows.Scan(&m.ID, &m.ChannelID, &m.UserID, &m.Body, &m.ClientMsgID, &m.CreatedAt); err != nil {
-			return nil, err
+			return domain.Message{}, err
 		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
+		return m, nil
+	})
 }
 
 // InsertMessage 新規メッセージを保存し、採番されたIDと作成時刻を返します。
