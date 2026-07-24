@@ -20,6 +20,10 @@ import (
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/webhook"
 )
 
+// handlerTimeout ハンドラ1回の処理に与える期限です。
+// 層をまたいで二重管理しないよう、transport配下のハンドラとWebSocket送信は
+// すべてこの1つを参照します。Hubの購読者ごとの送信期限は別ポリシーなので、
+// hub.sendTimeoutとは独立して定義します。
 const handlerTimeout = 5 * time.Second
 
 // Deps ハンドラ層が必要とする依存をまとめます。

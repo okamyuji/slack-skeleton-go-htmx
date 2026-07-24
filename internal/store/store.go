@@ -41,6 +41,9 @@ type Store struct {
 	db *sql.DB
 }
 
+// scanRows rowsの走査、値の詰め替え、rows.Err()の確認をまとめます。
+// 各クエリメソッドは1行ぶんのScanだけをscanに渡せばよく、走査の定型を
+// クエリの数だけ書き写さずに済みます。呼び出し側はrows.Close()の責任を持ちます。
 func scanRows[T any](rows *sql.Rows, scan func(*sql.Rows) (T, error)) ([]T, error) {
 	var out []T
 	for rows.Next() {
