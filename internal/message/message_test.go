@@ -265,8 +265,10 @@ func TestSendValidatesInputBoundaries(t *testing.T) {
 		{name: "キー65文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: strings.Repeat("k", 65)}, wantErr: true},
 		{name: "channel_id=1は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: "b3"}},
 		{name: "channel_id=0は弾く", in: message.SendInput{ChannelID: 0, UserID: 1, Body: "x", ClientMsgID: "b4"}, wantErr: true},
+		{name: "channel_idが負なら弾く", in: message.SendInput{ChannelID: -1, UserID: 1, Body: "x", ClientMsgID: "b7"}, wantErr: true},
 		{name: "user_id=1は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: "b5"}},
 		{name: "user_id=0は弾く", in: message.SendInput{ChannelID: 1, UserID: 0, Body: "x", ClientMsgID: "b6"}, wantErr: true},
+		{name: "user_idが負なら弾く", in: message.SendInput{ChannelID: 1, UserID: -1, Body: "x", ClientMsgID: "b8"}, wantErr: true},
 	}
 
 	for _, tt := range tests {

@@ -43,7 +43,7 @@ gate-integration:
 # 実行時間が長く結果も環境で揺れるため、品質ゲートとCIには入れていません。
 # 対象を絞って走らせてください: make mutate PKG=./internal/hub
 mutate:
-	@command -v gremlins >/dev/null || (echo "gremlinsが必要です: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest" && exit 1)
+	@command -v gremlins >/dev/null || (echo "gremlinsが必要です: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0" && exit 1)
 	gremlins unleash $(or $(PKG),./internal/message)
 
 up:
