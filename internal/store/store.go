@@ -68,29 +68,6 @@ type CreateWebhookInput struct {
 // New DBハンドルを保持したStoreを返します。
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// DB 外部からのテスト用に内部ハンドルを返します。
-func (s *Store) DB() *sql.DB { return s.db }
-
-// ListChannelsByWorkspace 対象Workspaceのチャンネルを名前順で返します。
-func (s *Store) ListChannelsByWorkspace(ctx context.Context, workspaceID int64) ([]domain.Channel, error) {
-	const q = `SELECT id, workspace_id, name, created_at
-	             FROM channels
-	            WHERE workspace_id = ?
-	            ORDER BY name ASC`
-	rows, err := s.db.QueryContext(ctx, q, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	return scanRows(rows, func(rows *sql.Rows) (domain.Channel, error) {
-		var c domain.Channel
-		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.CreatedAt); err != nil {
-			return domain.Channel{}, err
-		}
-		return c, nil
-	})
-}
-
 // FindWorkspaceName Workspaceの表示名を返します。
 func (s *Store) FindWorkspaceName(ctx context.Context, workspaceID int64) (string, error) {
 	var name string
@@ -393,22 +370,28 @@ func (s *Store) IsMember(ctx context.Context, userID, channelID int64) (bool, er
 	const q = `SELECT 1 FROM memberships WHERE user_id = ? AND channel_id = ? LIMIT 1`
 	var v int
 	if err := s.db.QueryRowContext(ctx, q, userID, channelID).Scan(&v); err != nil {
+		// 参加していないことは異常ではないので、ErrNoRowsだけは偽として返します。
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("is member: %w", err)
 	}
 	return true, nil
 }
 
-// FindMessage 単一メッセージを取得します。テスト時の検証目的でも利用します。
+// FindMessage 単一メッセージをIDで取得します。
+// 本番の経路からは呼びません。統合テストがINSERTの結果を確かめるために使います。
+// 該当がない場合は他のfinderと同じくErrNotFoundを返します。
 func (s *Store) FindMessage(ctx context.Context, id int64) (domain.Message, error) {
 	const q = `SELECT id, channel_id, user_id, body, client_msg_id, created_at
 	             FROM messages WHERE id = ?`
 	var m domain.Message
 	if err := s.db.QueryRowContext(ctx, q, id).
 		Scan(&m.ID, &m.ChannelID, &m.UserID, &m.Body, &m.ClientMsgID, &m.CreatedAt); err != nil {
-		return domain.Message{}, err
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Message{}, ErrNotFound
+		}
+		return domain.Message{}, fmt.Errorf("find message: %w", err)
 	}
 	return m, nil
 }

@@ -140,29 +140,16 @@ func TestMessagesBeforeCursor(t *testing.T) {
 	}
 }
 
-func TestListChannelsAndUsersByWorkspace(t *testing.T) {
+func TestListUsersByWorkspace(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
 
 	workspaceID, _, _ := seedBasicFixture(t, db)
-	// 別チャンネルと別ユーザーを追加します
-	if _, err := db.Exec("INSERT INTO channels (workspace_id, name) VALUES (?, ?)", workspaceID, "random"); err != nil {
-		t.Fatalf("seed channel: %v", err)
-	}
 	if _, err := db.Exec("INSERT INTO users (workspace_id, display_name) VALUES (?, ?)", workspaceID, "bob"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
 	s := store.New(db)
-	channels, err := s.ListChannelsByWorkspace(context.Background(), workspaceID)
-	if err != nil || len(channels) != 2 {
-		t.Fatalf("channels: err=%v len=%d", err, len(channels))
-	}
-	// 名前昇順
-	if channels[0].Name != "general" || channels[1].Name != "random" {
-		t.Fatalf("channels unsorted: %+v", channels)
-	}
-
 	users, err := s.ListUsersByWorkspace(context.Background(), workspaceID)
 	if err != nil || len(users) != 2 {
 		t.Fatalf("users: err=%v len=%d", err, len(users))
@@ -229,16 +216,6 @@ func TestRecentMessagesAndIsMember(t *testing.T) {
 	}
 	if recent[0].ID < recent[1].ID {
 		t.Fatal("id降順ではありません")
-	}
-}
-
-func TestStoreDBReturnsHandle(t *testing.T) {
-	db, cleanup := openTestDB(t)
-	defer cleanup()
-
-	s := store.New(db)
-	if s.DB() == nil {
-		t.Fatal("DB(): nil返し")
 	}
 }
 
