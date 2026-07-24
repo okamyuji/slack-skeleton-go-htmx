@@ -5,8 +5,11 @@ unleash:
   # 既定値のままだとテーブル駆動テストが軒並みタイムアウト判定になり、
   # 「殺せたのか時間切れなのか」が読めなくなります。
   timeout-coefficient: 6
-  # 生き残りが出たら失敗させます。
-  threshold-efficacy: 100
-  # 変異を仕掛けられた箇所のうち、テストが到達している割合の下限です。
-  # crypto/randの失敗経路のように到達させようがない箇所があるため100にはしません。
-  threshold-mcover: 80
+  # 閾値はthresholdの下にefficacyとmcoverで書きます。
+  # threshold-efficacyのように平らに書くと、エラーにならず黙って無視されます。
+  threshold:
+    # 生き残りが1つでも出たら失敗させます(exit 10)。
+    efficacy: 100
+    # 変異を仕掛けられた箇所のうち、テストが到達している割合の下限です。
+    # crypto/randの失敗経路のように到達させようがない箇所があるため100にはしません。
+    mcover: 80

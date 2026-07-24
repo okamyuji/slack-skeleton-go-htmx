@@ -96,21 +96,43 @@ func (s *Store) FindWebhookBotUserIDByChannel(ctx context.Context, channelID int
 }
 
 // CreateWebhook Webhookを作成します。
+// 対象がbotであることと、そのbotが当該チャンネルに参加していることが条件で、
+// 満たさない場合はErrNotFoundを返します。
+//
+// 条件の確認と挿入は1文で行います。先にSELECTで確かめてからINSERTすると、
+// その隙にbotの参加が外れても挿入が通ってしまい、投稿できないbotに
+// 紐づいたWebhookが残ります。EXISTSを条件にしたINSERT ... SELECTなら、
+// 判定と挿入が同じ文の中で起きるためこの隙間がなくなり、往復も1回減ります。
 func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domain.Webhook, error) {
-	if err := s.validateWebhookBot(ctx, in.BotUserID, in.ChannelID); err != nil {
-		return domain.Webhook{}, err
-	}
 	// created_atをDEFAULT任せにしない理由はInsertMessageと同じです。
 	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id, created_at)
-	           VALUES (?, ?, ?, ?, ?, ?)`
+	           SELECT ?, ?, ?, ?, ?, ?
+	            WHERE EXISTS (
+	                  SELECT 1
+	                    FROM users u
+	                    JOIN memberships m ON m.user_id = u.id
+	                   WHERE u.id = ?
+	                     AND u.is_bot = TRUE
+	                     AND m.channel_id = ?
+	           )`
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
-	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID, createdAt)
+	res, err := s.db.ExecContext(ctx, q,
+		in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID, createdAt,
+		in.BotUserID, in.ChannelID)
 	if err != nil {
 		var mErr *mysql.MySQLError
 		if errors.As(err, &mErr) && mErr.Number == 1062 {
 			return domain.Webhook{}, ErrDuplicate
 		}
 		return domain.Webhook{}, fmt.Errorf("create webhook: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return domain.Webhook{}, fmt.Errorf("create webhook rows: %w", err)
+	}
+	// 0件はEXISTSが偽だったこと、つまりbotが条件を満たさなかったことを意味します。
+	if affected == 0 {
+		return domain.Webhook{}, ErrNotFound
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -124,25 +146,6 @@ func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domai
 		BotUserID: in.BotUserID,
 		CreatedAt: createdAt,
 	}, nil
-}
-
-func (s *Store) validateWebhookBot(ctx context.Context, botUserID, channelID int64) error {
-	const q = `SELECT 1
-	             FROM users u
-	             JOIN memberships m ON m.user_id = u.id
-	            WHERE u.id = ?
-	              AND u.is_bot = TRUE
-	              AND m.channel_id = ?
-	            LIMIT 1`
-	var v int
-	err := s.db.QueryRowContext(ctx, q, botUserID, channelID).Scan(&v)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		return fmt.Errorf("validate webhook bot: %w", err)
-	}
-	return nil
 }
 
 // FindWebhookChannelID Webhookが紐づくchannel IDを返します。

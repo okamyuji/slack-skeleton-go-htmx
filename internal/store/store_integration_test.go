@@ -232,6 +232,39 @@ func TestRecentMessagesAndIsMember(t *testing.T) {
 	}
 }
 
+func TestCreateWebhookRejectsBotOutsideChannel(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+
+	workspaceID, _, channelID := seedBasicFixture(t, db)
+	botUserID := seedWebhookBot(t, db, workspaceID, channelID)
+	s := store.New(db)
+
+	// botの参加を外します。挿入の直前に外れた場合と同じ状態です。
+	if _, err := db.Exec("DELETE FROM memberships WHERE user_id = ? AND channel_id = ?", botUserID, channelID); err != nil {
+		t.Fatalf("参加の削除: %v", err)
+	}
+
+	_, err := s.CreateWebhook(context.Background(), store.CreateWebhookInput{
+		ChannelID: channelID,
+		Token:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		Label:     "外れたbot",
+		BotUserID: botUserID,
+	})
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ErrNotFoundを期待しましたが %v", err)
+	}
+
+	// 投稿できないbotに紐づいたWebhookが残っていないことを確かめます。
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM webhooks WHERE channel_id = ?", channelID).Scan(&count); err != nil {
+		t.Fatalf("件数: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("条件を満たさないのにWebhookが作成されています: %d件", count)
+	}
+}
+
 func TestWebhookSettingsCRUD(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
