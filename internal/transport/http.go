@@ -14,7 +14,6 @@ import (
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/domain"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/hub"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/message"
-	"github.com/okamyuji/slack-skeleton-go-htmx/internal/render"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/snapshot"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/store"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/webhook"
@@ -27,22 +26,58 @@ import (
 const handlerTimeout = 5 * time.Second
 
 // Deps ハンドラ層が必要とする依存をまとめます。
+//
+// 各フィールドは、この層が実際に呼ぶメソッドだけを並べたインターフェイスで受け取ります。
+// 具象型で受けると、ハンドラのテストがサービスの内部事情まで組み立てる羽目になり、
+// この層が何に依存しているのかもフィールドの型からは読み取れません。
+// インターフェイスはすべて利用する側であるこのpackageで定義します。
+// サービス層が message.Repository や snapshot.Reader を自分で定義しているのと同じ向きです。
 type Deps struct {
 	Logger       *slog.Logger
-	Snapshot     *snapshot.Service
-	Renderer     *render.Renderer
-	Messages     *message.Service
-	Webhooks     *webhook.Service
+	Snapshot     snapshotLoader
+	Renderer     templateRenderer
+	Messages     messageService
+	Webhooks     webhookReceiver
 	WebhookAdmin webhookAdmin
-	Hub          *hub.Hub
+	Hub          fragmentPublisher
 	Members      membershipChecker
 }
 
-// membershipChecker WebSocket購読前のMembership検査に使う読み取り境界の抽象です。
+// membershipChecker Membership検査に使う読み取り境界の抽象です。
 type membershipChecker interface {
 	IsMember(ctx context.Context, userID, channelID int64) (bool, error)
 }
 
+// snapshotLoader 初期画面に必要な状態をまとめて読み出します。
+type snapshotLoader interface {
+	Load(ctx context.Context, workspaceID, meUserID int64) (snapshot.View, error)
+}
+
+// templateRenderer 名前を指定してテンプレートを書き出します。
+type templateRenderer interface {
+	Render(w io.Writer, name string, data any) error
+}
+
+// messageService 投稿と履歴取得の窓口です。
+type messageService interface {
+	Send(ctx context.Context, in message.SendInput) (domain.Message, bool, error)
+	History(ctx context.Context, userID, channelID, beforeID int64, limit int) ([]domain.Message, error)
+}
+
+// webhookReceiver 受信したpayloadを既存の投稿パイプラインへ合流させます。
+type webhookReceiver interface {
+	HandlePayload(ctx context.Context, token string, headers http.Header, body []byte) (domain.Message, bool, error)
+}
+
+// fragmentPublisher 対象チャンネルの購読者へHTMLフラグメントを配ります。
+// 購読の登録と解除はWebSocketハンドラだけが使います。
+type fragmentPublisher interface {
+	Publish(ctx context.Context, channelID int64, payload []byte)
+	Subscribe(sender hub.Sender, channelIDs []int64) *hub.Subscription
+	Unsubscribe(sub *hub.Subscription)
+}
+
+// webhookAdmin Webhookの登録と削除に必要な操作です。
 type webhookAdmin interface {
 	FindWebhookBotUserIDByChannel(ctx context.Context, channelID int64) (int64, error)
 	FindWebhookChannelID(ctx context.Context, id int64) (int64, error)

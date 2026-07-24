@@ -54,7 +54,13 @@ type ChannelView struct {
 
 // Load Workspace全体のスナップショットを返します。
 // チャンネル一覧はmeUserIDが参加しているものだけに絞り、読み取り境界を投稿側と揃えます。
-// 全チャンネルの直近メッセージを取得するため、本来はキャッシュ層を介す前提です。
+//
+// 直近メッセージはチャンネルの数だけ問い合わせを出します。いわゆるN+1で、
+// 参加チャンネルが増えるほど初期画面のレイテンシが線形に悪化します。
+// 1クエリにまとめる書き方(IN句とウィンドウ関数)もありますが、
+// 「1回のリクエストで全部返す」というSnapshotの役割がSQLの技巧に埋もれるため、
+// ここでは素直なループのまま残します。実運用ではこの手前にキャッシュ層を置きます。
+// Slackが同じ位置にFlannelというエッジキャッシュを置いているのがその実例です。
 func (s *Service) Load(ctx context.Context, workspaceID, meUserID int64) (View, error) {
 	workspaceName, err := s.reader.FindWorkspaceName(ctx, workspaceID)
 	if err != nil {
