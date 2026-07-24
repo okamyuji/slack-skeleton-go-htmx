@@ -63,10 +63,15 @@ func (s *Store) MessagesBefore(ctx context.Context, channelID, beforeID int64, l
 // 実際に保存された値と一致する保証がありません。送信直後にWebSocketで配る
 // フラグメントと、あとで履歴を読み直したときの表示で時刻がずれます。
 // 明示的に渡せば、再SELECTを足さずに両者を必ず一致させられます。
+//
+// 渡す前にマイクロ秒へ丸めます。time.Nowはナノ秒まで持ちますが、
+// 列の型はDATETIME(6)でマイクロ秒までしか保持しないため、丸めずに渡すと
+// 返した値と保存された値が末尾の桁でずれます。時刻の分解能はOSによって
+// 違うので、丸めないと環境によって再現したりしなかったりします。
 func (s *Store) InsertMessage(ctx context.Context, in domain.Message) (domain.Message, error) {
 	const q = `INSERT INTO messages (channel_id, user_id, body, client_msg_id, created_at)
 	           VALUES (?, ?, ?, ?, ?)`
-	createdAt := time.Now().UTC()
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.UserID, in.Body, in.ClientMsgID, createdAt)
 	if err != nil {
 		var mErr *mysql.MySQLError

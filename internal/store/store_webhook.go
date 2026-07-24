@@ -103,7 +103,7 @@ func (s *Store) CreateWebhook(ctx context.Context, in CreateWebhookInput) (domai
 	// created_atをDEFAULT任せにしない理由はInsertMessageと同じです。
 	const q = `INSERT INTO webhooks (channel_id, token, label, secret, bot_user_id, created_at)
 	           VALUES (?, ?, ?, ?, ?, ?)`
-	createdAt := time.Now().UTC()
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	res, err := s.db.ExecContext(ctx, q, in.ChannelID, in.Token, in.Label, in.Secret, in.BotUserID, createdAt)
 	if err != nil {
 		var mErr *mysql.MySQLError

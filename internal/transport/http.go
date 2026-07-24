@@ -413,12 +413,11 @@ func historyHandler(deps Deps) http.HandlerFunc {
 			http.Error(w, "invalid before", http.StatusBadRequest)
 			return
 		}
-		limit64, err := optionalInt64(r.URL.Query().Get("limit"))
+		limit, err := optionalInt(r.URL.Query().Get("limit"))
 		if err != nil {
 			http.Error(w, "invalid limit", http.StatusBadRequest)
 			return
 		}
-		limit := int(limit64)
 
 		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
@@ -460,6 +459,16 @@ func optionalInt64(raw string) (int64, error) {
 		return 0, err
 	}
 	return v, nil
+}
+
+// optionalInt 省略可能な数値クエリをintとして読みます。
+// int64で受けてから変換すると、intが32bitの環境で桁が溢れて別の値に化けます。
+// Atoiはintの幅で解釈するため、収まらない値はここでエラーになります。
+func optionalInt(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(raw)
 }
 
 // currentUserID X-User-Idヘッダから現在ユーザーを取得します。

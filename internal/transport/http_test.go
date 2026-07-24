@@ -788,6 +788,8 @@ func TestHistoryHandlerRejectsUnparsableCursorParams(t *testing.T) {
 		{name: "未指定は従来どおり最新から", query: "", wantStatus: http.StatusOK},
 		{name: "空文字も未指定と同じ", query: "?before=&limit=", wantStatus: http.StatusOK},
 		{name: "数値なら従来どおり", query: "?before=5&limit=10", wantStatus: http.StatusOK},
+		{name: "intに収まらないlimitは400", query: "?limit=99999999999999999999", wantStatus: http.StatusBadRequest, wantBody: "invalid limit\n"},
+		{name: "int64に収まらないbeforeは400", query: "?before=99999999999999999999", wantStatus: http.StatusBadRequest, wantBody: "invalid before\n"},
 	}
 
 	for _, tt := range tests {

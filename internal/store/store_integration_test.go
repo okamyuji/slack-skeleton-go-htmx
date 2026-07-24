@@ -79,6 +79,11 @@ func TestInsertMessageAndRetrieve(t *testing.T) {
 	if got.CreatedAt.IsZero() {
 		t.Fatal("CreatedAtがゼロ値です")
 	}
+	// 列の型はDATETIME(6)なので、ナノ秒を持ったまま渡すと保存時に切り捨てられ、
+	// 返した値と保存された値が末尾の桁でずれます。渡す前に丸めていることを固定します。
+	if got.CreatedAt.Nanosecond()%1000 != 0 {
+		t.Fatalf("CreatedAtがマイクロ秒に丸められていません: %v", got.CreatedAt)
+	}
 }
 
 func TestDuplicateClientMsgIDIsRejected(t *testing.T) {
