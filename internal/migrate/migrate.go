@@ -15,6 +15,18 @@ import (
 // Up dir配下の*.up.sqlを名前順に読み込み、dbに対して順次実行します。
 // 各ファイルはセミコロン区切りの複数文を含むことができます。
 // schema_migrationsテーブルに適用済みファイル名を記録し、二度目以降の実行ではスキップします。
+//
+// 承知のうえで割り切っている点があります。適用の記録はファイル単位で、
+// しかも全文が成功したあとに書きます。1つのファイルの途中で失敗すると、
+// そこまでの文はDBに残ったまま記録だけが残りません。次回の実行は同じファイルを
+// 先頭からやり直すので、すでに適用済みの文で再び失敗します。
+// MySQLのDDLはトランザクションで巻き戻せず、ALTER TABLE ... ADD COLUMN には
+// IF NOT EXISTS もないため、この状況からの自動復旧はできません。
+// 復旧は人手で行います。失敗したファイルの残りの文だけを手で流し、
+// INSERT INTO schema_migrations (filename) VALUES ('<失敗したファイル名>') で
+// 適用済みとして記録します。
+// 本番運用でこれを避けるなら、1ファイル1文に分けるか、文単位で記録する
+// マイグレータへ差し替えることになります。
 func Up(ctx context.Context, db *sql.DB, dir string) error {
 	if err := ensureTrackingTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate: ensure table: %w", err)

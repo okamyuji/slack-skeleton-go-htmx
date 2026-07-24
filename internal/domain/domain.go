@@ -1,7 +1,7 @@
 // Package domain 本記事で扱う最小ドメインモデルを定義します。
-// Workspace、User、Channel、Membership、Message、Webhook、
-// WebhookWithSecret、WebhookSettingの8型のみで、
-// 認証や認可といった本記事のスコープ外の責務は持ちません。
+// Workspace、User、Channel、Message、Webhook、WebhookWithSecret、
+// WebhookSettingの7型のみで、認証や認可といった本記事のスコープ外の
+// 責務は持ちません。
 package domain
 
 import "time"
@@ -30,12 +30,10 @@ type Channel struct {
 	CreatedAt   time.Time
 }
 
-// Membership UserがChannelに参加していることを表します。
-type Membership struct {
-	UserID    int64
-	ChannelID int64
-	JoinedAt  time.Time
-}
+// memberships テーブルに対応するGoの型は置きません。
+// 参加関係は「参加しているか」の真偽と、一覧を絞り込むJOINでしか使わず、
+// 1行ぶんを値として持ち回る場面がないためです。
+// 判定は store.IsMember、絞り込みは各クエリのJOINが担います。
 
 // Message 1件の発言を表します。
 // ClientMsgIDはクライアントが送信時に生成する冪等性キーで、

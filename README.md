@@ -126,6 +126,22 @@ make gate-integration  # 統合テスト込み(testcontainersでMySQLを自動�
 - 統合テストはGoの[build tag](https://pkg.go.dev/cmd/go#hdr-Build_constraints)で`//go:build integration`として隔離してあるため、デフォルトの`go test ./...`では実行されません。
 - 合計カバレッジは83%程度を保ちます(`go test -coverprofile=...`で計測)。
 
+### mutation testing(任意)
+
+カバレッジは「その行を通ったか」しか教えてくれません。通ってはいるが値を変えても気づかないテストは、境界の変更に対して無力です。[gremlins](https://github.com/go-gremlins/gremlins)でコードをわざと書き換え、テストがそれを落とせるかを測れます。
+
+```sh
+go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+make mutate                        # 既定は internal/message
+make mutate PKG=./internal/hub     # 対象を指定
+```
+
+バージョンを固定しているのは、0.x系では設定の書式がマイナーリリース間で変わり得るためです。`.gremlins.yaml`はv0.6.0で動作を確認しています。
+
+`LIVED`と出た箇所が、変更しても誰も気づかない場所です。実際にこの方法で、上限ちょうどの入力を誰も検査していないこと(`limit=100`、本文4000文字、キー64文字)を見つけて塞ぎました。
+
+実行時間が長く、タイムアウト判定が環境で揺れるため、品質ゲートとCIには含めていません。テストを書いたあとの答え合わせに使ってください。
+
 ## Docker Image
 
 ```sh

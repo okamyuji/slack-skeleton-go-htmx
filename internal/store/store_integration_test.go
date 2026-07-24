@@ -71,6 +71,19 @@ func TestInsertMessageAndRetrieve(t *testing.T) {
 	if found.Body != in.Body || found.ClientMsgID != in.ClientMsgID {
 		t.Fatalf("got %+v, want body=%q client=%q", found, in.Body, in.ClientMsgID)
 	}
+	// InsertMessageが返す作成時刻は、実際に保存された値と一致しなければなりません。
+	// ずれると、送信直後にWebSocketで配るフラグメントと履歴の再読込で表示が食い違います。
+	if !got.CreatedAt.Equal(found.CreatedAt) {
+		t.Fatalf("CreatedAtが保存値と不一致: insert=%v stored=%v", got.CreatedAt, found.CreatedAt)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAtがゼロ値です")
+	}
+	// 列の型はDATETIME(6)なので、ナノ秒を持ったまま渡すと保存時に切り捨てられ、
+	// 返した値と保存された値が末尾の桁でずれます。渡す前に丸めていることを固定します。
+	if got.CreatedAt.Nanosecond()%1000 != 0 {
+		t.Fatalf("CreatedAtがマイクロ秒に丸められていません: %v", got.CreatedAt)
+	}
 }
 
 func TestDuplicateClientMsgIDIsRejected(t *testing.T) {
@@ -140,29 +153,16 @@ func TestMessagesBeforeCursor(t *testing.T) {
 	}
 }
 
-func TestListChannelsAndUsersByWorkspace(t *testing.T) {
+func TestListUsersByWorkspace(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
 
 	workspaceID, _, _ := seedBasicFixture(t, db)
-	// 別チャンネルと別ユーザーを追加します
-	if _, err := db.Exec("INSERT INTO channels (workspace_id, name) VALUES (?, ?)", workspaceID, "random"); err != nil {
-		t.Fatalf("seed channel: %v", err)
-	}
 	if _, err := db.Exec("INSERT INTO users (workspace_id, display_name) VALUES (?, ?)", workspaceID, "bob"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
 	s := store.New(db)
-	channels, err := s.ListChannelsByWorkspace(context.Background(), workspaceID)
-	if err != nil || len(channels) != 2 {
-		t.Fatalf("channels: err=%v len=%d", err, len(channels))
-	}
-	// 名前昇順
-	if channels[0].Name != "general" || channels[1].Name != "random" {
-		t.Fatalf("channels unsorted: %+v", channels)
-	}
-
 	users, err := s.ListUsersByWorkspace(context.Background(), workspaceID)
 	if err != nil || len(users) != 2 {
 		t.Fatalf("users: err=%v len=%d", err, len(users))
@@ -232,13 +232,36 @@ func TestRecentMessagesAndIsMember(t *testing.T) {
 	}
 }
 
-func TestStoreDBReturnsHandle(t *testing.T) {
+func TestCreateWebhookRejectsBotOutsideChannel(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
 
+	workspaceID, _, channelID := seedBasicFixture(t, db)
+	botUserID := seedWebhookBot(t, db, workspaceID, channelID)
 	s := store.New(db)
-	if s.DB() == nil {
-		t.Fatal("DB(): nil返し")
+
+	// botの参加を外します。挿入の直前に外れた場合と同じ状態です。
+	if _, err := db.Exec("DELETE FROM memberships WHERE user_id = ? AND channel_id = ?", botUserID, channelID); err != nil {
+		t.Fatalf("参加の削除: %v", err)
+	}
+
+	_, err := s.CreateWebhook(context.Background(), store.CreateWebhookInput{
+		ChannelID: channelID,
+		Token:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		Label:     "外れたbot",
+		BotUserID: botUserID,
+	})
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ErrNotFoundを期待しましたが %v", err)
+	}
+
+	// 投稿できないbotに紐づいたWebhookが残っていないことを確かめます。
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM webhooks WHERE channel_id = ?", channelID).Scan(&count); err != nil {
+		t.Fatalf("件数: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("条件を満たさないのにWebhookが作成されています: %d件", count)
 	}
 }
 

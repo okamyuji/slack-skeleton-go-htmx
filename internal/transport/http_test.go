@@ -774,6 +774,43 @@ func TestHistoryHandlerRejectsInvalidChannelID(t *testing.T) {
 	}
 }
 
+func TestHistoryHandlerRejectsUnparsableCursorParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		query      string
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "beforeが数値でない", query: "?before=abc", wantStatus: http.StatusBadRequest, wantBody: "invalid before\n"},
+		{name: "limitが数値でない", query: "?limit=all", wantStatus: http.StatusBadRequest, wantBody: "invalid limit\n"},
+		{name: "未指定は従来どおり最新から", query: "", wantStatus: http.StatusOK},
+		{name: "空文字も未指定と同じ", query: "?before=&limit=", wantStatus: http.StatusOK},
+		{name: "数値なら従来どおり", query: "?before=5&limit=10", wantStatus: http.StatusOK},
+		{name: "intに収まらないlimitは400", query: "?limit=99999999999999999999", wantStatus: http.StatusBadRequest, wantBody: "invalid limit\n"},
+		{name: "int64に収まらないbeforeは400", query: "?before=99999999999999999999", wantStatus: http.StatusBadRequest, wantBody: "invalid before\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, repo, _ := newFullDeps(t)
+			repo.members[[2]int64{1, 10}] = true
+			mux := transport.NewMux(deps)
+			req := httptest.NewRequest(http.MethodGet, "/channels/10/messages"+tt.query, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status=%d, want %d (body=%q)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantBody != "" && rec.Body.String() != tt.wantBody {
+				t.Fatalf("body=%q, want %q", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
 func TestPostMessageReturnsErrorWhenMessagesNotWired(t *testing.T) {
 	t.Parallel()
 

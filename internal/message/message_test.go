@@ -3,6 +3,8 @@ package message_test
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,6 +249,48 @@ func TestSendRejectsIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestSendValidatesInputBoundaries(t *testing.T) {
+	t.Parallel()
+
+	// 受け入れる側と弾く側の両方を、境界のちょうど上と下で押さえます。
+	// 境界を1つずらす変更(> を >= にするなど)をここで検出します。
+	tests := []struct {
+		name    string
+		in      message.SendInput
+		wantErr bool
+	}{
+		{name: "本文4000文字は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("a", 4000), ClientMsgID: "b1"}},
+		{name: "本文4001文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("a", 4001), ClientMsgID: "b2"}, wantErr: true},
+		{name: "キー64文字は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: strings.Repeat("k", 64)}},
+		{name: "キー65文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: strings.Repeat("k", 65)}, wantErr: true},
+		{name: "channel_id=1は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: "b3"}},
+		{name: "channel_id=0は弾く", in: message.SendInput{ChannelID: 0, UserID: 1, Body: "x", ClientMsgID: "b4"}, wantErr: true},
+		{name: "channel_idが負なら弾く", in: message.SendInput{ChannelID: -1, UserID: 1, Body: "x", ClientMsgID: "b7"}, wantErr: true},
+		{name: "user_id=1は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: "b5"}},
+		{name: "user_id=0は弾く", in: message.SendInput{ChannelID: 1, UserID: 0, Body: "x", ClientMsgID: "b6"}, wantErr: true},
+		{name: "user_idが負なら弾く", in: message.SendInput{ChannelID: 1, UserID: -1, Body: "x", ClientMsgID: "b8"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			repo.members[[2]int64{1, 1}] = true
+			svc := message.New(repo)
+
+			_, _, err := svc.Send(context.Background(), tt.in)
+			if tt.wantErr {
+				if !errors.Is(err, message.ErrInvalidInput) {
+					t.Fatalf("ErrInvalidInputを期待しましたが %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("受け付けられるはずの入力が拒否されました: %v", err)
+			}
+		})
+	}
+}
+
 func TestHistoryRejectsNonMember(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()
@@ -280,6 +324,47 @@ func TestHistoryDefaultsLimit(t *testing.T) {
 	}
 	if len(got) != 20 {
 		t.Fatalf("default limit=20 を期待しましたが %d", len(got))
+	}
+}
+
+func TestHistoryClampsLimitAtBoundaries(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	repo.members[[2]int64{1, 1}] = true
+	svc := message.New(repo)
+
+	for i := range 120 {
+		_, _, err := svc.Send(context.Background(), message.SendInput{
+			ChannelID: 1, UserID: 1, Body: "m", ClientMsgID: "clamp-" + strconv.Itoa(i),
+		})
+		if err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	// limitは1以上100以下だけをそのまま使い、範囲外は既定の20に倒します。
+	// 境界を1つずらす変更(> を >= にするなど)をここで検出します。
+	tests := []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{name: "下限の1はそのまま", limit: 1, want: 1},
+		{name: "0は既定の20", limit: 0, want: 20},
+		{name: "負数は既定の20", limit: -1, want: 20},
+		{name: "上限の100はそのまま", limit: 100, want: 100},
+		{name: "101は既定の20", limit: 101, want: 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := svc.History(context.Background(), 1, 1, 0, tt.limit)
+			if err != nil {
+				t.Fatalf("history: %v", err)
+			}
+			if len(got) != tt.want {
+				t.Fatalf("limit=%d のとき %d件、期待は %d件", tt.limit, len(got), tt.want)
+			}
+		})
 	}
 }
 
