@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/domain"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/store"
@@ -54,7 +55,10 @@ func New(repo Repository) *Service { return &Service{repo: repo} }
 // 冪等性キーが既知の組み合わせなら既存メッセージを返します。
 func (s *Service) Send(ctx context.Context, in SendInput) (domain.Message, bool, error) {
 	body := strings.TrimSpace(in.Body)
-	if body == "" || len(body) > 4000 {
+	// 上限はバイトではなくルーン数で数えます。webhook側の切り詰めが
+	// ルーン単位なので、ここをバイトで数えると多バイト本文の通知が
+	// 切り詰め後もここで弾かれて失われます。
+	if body == "" || utf8.RuneCountInString(body) > 4000 {
 		return domain.Message{}, false, fmt.Errorf("%w: body length", ErrInvalidInput)
 	}
 	cid := strings.TrimSpace(in.ClientMsgID)

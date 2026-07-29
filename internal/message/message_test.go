@@ -261,6 +261,8 @@ func TestSendValidatesInputBoundaries(t *testing.T) {
 	}{
 		{name: "本文4000文字は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("a", 4000), ClientMsgID: "b1"}},
 		{name: "本文4001文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("a", 4001), ClientMsgID: "b2"}, wantErr: true},
+		{name: "多バイト4000文字は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("あ", 4000), ClientMsgID: "b9"}},
+		{name: "多バイト4001文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: strings.Repeat("あ", 4001), ClientMsgID: "b10"}, wantErr: true},
 		{name: "キー64文字は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: strings.Repeat("k", 64)}},
 		{name: "キー65文字は弾く", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: strings.Repeat("k", 65)}, wantErr: true},
 		{name: "channel_id=1は受け付ける", in: message.SendInput{ChannelID: 1, UserID: 1, Body: "x", ClientMsgID: "b3"}},

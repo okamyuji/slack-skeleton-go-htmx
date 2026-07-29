@@ -199,3 +199,64 @@ func TestFragmentForMessageEmbedsBody(t *testing.T) {
 		t.Fatalf("body missing: %s", got)
 	}
 }
+
+// TestWSHandlerSurvivesServerTimeouts 本番のhttp.Serverと同様に
+// ReadTimeout/WriteTimeoutを設定したサーバーで、そのタイムアウト時刻を
+// 越えた後もWebSocket配信が届くことを確認します。Hijack後に残る
+// deadlineを解除しないと、このテストは読み取りエラーで失敗します。
+func TestWSHandlerSurvivesServerTimeouts(t *testing.T) {
+	t.Parallel()
+
+	r, err := render.New()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	h := hub.New()
+	deps := Deps{
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Renderer: r,
+		Hub:      h,
+		Members:  allowAllMembers{},
+	}
+
+	server := httptest.NewUnstartedServer(wsHandler(deps))
+	server.Config.ReadTimeout = 400 * time.Millisecond
+	server.Config.WriteTimeout = 400 * time.Millisecond
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/?channel_ids=7"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for h.SubscriberCount(7) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if h.SubscriberCount(7) != 1 {
+		t.Fatalf("subscriber not registered (count=%d)", h.SubscriberCount(7))
+	}
+
+	// Read/WriteTimeoutの期限を確実に越えてから配信します。
+	time.Sleep(time.Second)
+
+	go h.Publish(context.Background(), 7, []byte(`<div id="messages-7">after timeout</div>`))
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read after server timeout: %v", err)
+	}
+	if !strings.Contains(string(data), "after timeout") {
+		t.Fatalf("payload=%s", string(data))
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/domain"
 	"github.com/okamyuji/slack-skeleton-go-htmx/internal/hub"
@@ -538,21 +539,35 @@ func TestWebhookHandlerBodyTooLarge(t *testing.T) {
 	}
 }
 
-func TestWebhookHandlerInvalidInputReturns400(t *testing.T) {
+func TestWebhookHandlerTruncatesLongBodyAndPosts(t *testing.T) {
 	t.Parallel()
 
 	deps, repo, _ := newFullDeps(t)
 	repo.members[[2]int64{3, 12}] = true
 	deps.Webhooks = webhook.New(&fakeWebhookLookup{}, deps.Messages)
 
+	// 上限4000文字を超える本文は400で落とさず、切り詰めて投稿します。
+	// GitHubは失敗した配信を自動再送しないため、400はその通知の喪失を意味します。
 	tooLong := `{"text":"` + strings.Repeat("x", 4001) + `"}`
 	mux := transport.NewMux(deps)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/token", strings.NewReader(tooLong))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.stored) != 1 {
+		t.Fatalf("stored=%d", len(repo.stored))
+	}
+	body := repo.stored[0].Body
+	if got := utf8.RuneCountInString(body); got > 4000 {
+		t.Fatalf("body runes=%d", got)
+	}
+	if !strings.HasSuffix(body, "…") {
+		t.Fatalf("body should end with ellipsis, got tail=%q", body[len(body)-8:])
 	}
 }
 
