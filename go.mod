@@ -1,6 +1,6 @@
 module github.com/okamyuji/slack-skeleton-go-htmx
 
-go 1.25.11
+go 1.25.13
 
 require (
 	github.com/coder/websocket v1.8.13
