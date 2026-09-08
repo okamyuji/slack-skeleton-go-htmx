@@ -87,6 +87,10 @@ func TestBrowserFormPostToWebSocketRoundTrip(t *testing.T) {
 		`hx-on::config:request`,
 		`event.detail.ctx.request.body.set('client_msg_id'`,
 		`hx-on::after:request`,
+		// 送信中に編集した下書きを先行送信の成功応答で消さないため、送ったキーと
+		// フォームの現在値が一致するときだけreset()します
+		`this.dataset.sentKey = f.value`,
+		`this.dataset.sentKey === this.elements.client_msg_id.value`,
 		// form.reset()はhidden入力を戻さないため、成功時の明示クリアが必須です
 		`this.elements.client_msg_id.value = ''`,
 		// 本文編集時はキーを破棄し、次の送信を新規メッセージとして扱います

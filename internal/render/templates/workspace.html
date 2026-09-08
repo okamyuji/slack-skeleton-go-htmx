@@ -103,12 +103,15 @@
     書き換わった後の値になるため、明示的に空を代入してクリアします。
           同じキーは同一内容の再送だけに使う契約なので、失敗後に本文を編集したら
           oninputでキーを破棄し、次の送信を新規メッセージとして扱います。
+          送信中に本文を編集するとoninputでキーが空になるため、成功時は送ったキー
+          (dataset.sentKey)がフォームの現在値と一致するときだけreset()します。
+          一致しなければ応答は先行送信のものなので、編集中の下書きを残します。
         -->
         <form class="composer" id="composer-{{.Channel.ID}}"
               hx-post="/channels/{{.Channel.ID}}/messages"
               hx-swap="none"
-              hx-on::config:request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.ctx.request.body.set('client_msg_id', f.value);"
-              hx-on::after:request="const s = event.detail.ctx.response.status; if (s >= 200 && s < 300) { this.reset(); this.elements.client_msg_id.value = ''; }">
+              hx-on::config:request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.ctx.request.body.set('client_msg_id', f.value); this.dataset.sentKey = f.value;"
+              hx-on::after:request="const s = event.detail.ctx.response.status; if (s >= 200 && s < 300 && this.dataset.sentKey === this.elements.client_msg_id.value) { this.reset(); this.elements.client_msg_id.value = ''; }">
           <div class="composer-card">
             <input type="hidden" name="client_msg_id" value="">
             <textarea name="body" placeholder="#{{.Channel.Name}} へメッセージを送信..."
