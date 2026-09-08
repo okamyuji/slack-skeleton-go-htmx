@@ -35,7 +35,8 @@ jobs:
           cache: true
 
       - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+        # v0.8以降はGo 1.26以上を要求し、GOTOOLCHAIN=localのCIでは@latestが失敗する
+        run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
