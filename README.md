@@ -162,4 +162,4 @@ MIT License
 - [Keith Adams: How Slack Works (QCon SF 2016)](https://www.infoq.com/presentations/slack-infrastructure/)
 - [Bing Wei: Scaling Slack (QCon SF 2017)](https://www.infoq.com/presentations/slack-scalability/)
 - [Flannel: An Application-Level Edge Cache to Make Slack Scale](https://slack.engineering/flannel-an-application-level-edge-cache-to-make-slack-scale-b8a6400e2f6b)
-- [htmx WebSocket extension](https://htmx.org/extensions/ws/)
+- [htmx 4 hx-ws extension](https://four.htmx.org/extensions/hx-ws/)
