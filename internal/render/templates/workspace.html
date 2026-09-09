@@ -1,5 +1,9 @@
 {{define "body"}}
-<div class="app" hx-ext="ws" ws-connect="/ws?channel_ids={{range $i, $c := .Channels}}{{if $i}},{{end}}{{$c.Channel.ID}}{{end}}">
+<!--
+  受信断片はすべてhx-swap-oobで対象IDへ差し込む契約なので、接続要素自身のスワップは止めます。
+  外すと、hx-swap-oobを持たない断片が届いたときに.app全体がその断片で置き換わります。
+-->
+<div class="app" hx-ws:connect="/ws?channel_ids={{range $i, $c := .Channels}}{{if $i}},{{end}}{{$c.Channel.ID}}{{end}}" hx-swap="none">
   <aside>
     <div class="workspace-head">
       <h1 class="workspace-name">{{.Workspace.Name}}</h1>
@@ -90,18 +94,24 @@
         </div>
         <!--
           client_msg_idは冪等性キーです。送信直前に空のときだけ生成し、
+          hx-on::config:requestで送信ボディ(FormData)へ載せ直します。
+          htmx 4はフォーム値を集めてからこのイベントを発火するため、hiddenへ
+          代入するだけでは今回の送信に乗りません。
           失敗時は値を保つことで再送に同じキーを使い、成功時にだけ空へ戻して
           次回送信時に新しい値を採番します。
           hiddenのvalueは代入でvalue属性ごと書き換わり、reset()の戻し先も
     書き換わった後の値になるため、明示的に空を代入してクリアします。
           同じキーは同一内容の再送だけに使う契約なので、失敗後に本文を編集したら
           oninputでキーを破棄し、次の送信を新規メッセージとして扱います。
+          送信中に本文を編集するとoninputでキーが空になるため、成功時は送ったキー
+          (dataset.sentKey)がフォームの現在値と一致するときだけreset()します。
+          一致しなければ応答は先行送信のものなので、編集中の下書きを残します。
         -->
         <form class="composer" id="composer-{{.Channel.ID}}"
               hx-post="/channels/{{.Channel.ID}}/messages"
               hx-swap="none"
-              hx-on::config-request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.parameters.client_msg_id = f.value;"
-              hx-on::after-request="if (event.detail.successful) { this.reset(); this.elements.client_msg_id.value = ''; }">
+              hx-on::config:request="const f = this.elements.client_msg_id; if (!f.value) { f.value = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); } event.detail.ctx.request.body.set('client_msg_id', f.value); this.dataset.sentKey = f.value;"
+              hx-on::after:request="const s = event.detail.ctx.response.status; if (s >= 200 && s < 300 && this.dataset.sentKey === this.elements.client_msg_id.value) { this.reset(); this.elements.client_msg_id.value = ''; }">
           <div class="composer-card">
             <input type="hidden" name="client_msg_id" value="">
             <textarea name="body" placeholder="#{{.Channel.Name}} へメッセージを送信..."

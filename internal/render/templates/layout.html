@@ -4,8 +4,13 @@
   <meta charset="utf-8">
   <title>{{.Workspace.Name}} | slack-skeleton</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js" integrity="sha384-QILjBFil9/FrWrP1Y9Qh3vBfd7kiQE8h1BX9auwiVgsFlGwe4tEl7Y966BG178W6" crossorigin="anonymous"></script>
+  <!--
+    htmx 4は4xx/5xxの本文も既定でスワップします。http.Errorのプレーンテキストが
+    履歴読み込みの一覧に差し込まれるのを防ぐため、2系と同じ非スワップ集合に戻します。
+  -->
+  <meta name="htmx-config" content='{"noSwap": [204, 304, "4xx", "5xx"]}'>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js" integrity="sha384-BvJpBiO8Kh31EqtJe5DRIeWrHWnCGkwytKs9NKFi86Hhw96dEqdEMzZDeK9iEGTc" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-ws.min.js" integrity="sha384-8iDMDuKIquXLgObstxvwGlWD1bY/ALMH7k9rbC070qmZrRvJ0BGO+8xG+Ul+J0bP" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/hyperscript.org@0.9.13" integrity="sha384-5yQ5JTatiFEgeiEB4mfkRI3oTGtaNpbJGdcciZ4IEYFpLGt8yDsGAd7tKiMwnX9b" crossorigin="anonymous"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

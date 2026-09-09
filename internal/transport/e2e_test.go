@@ -82,11 +82,23 @@ func TestBrowserFormPostToWebSocketRoundTrip(t *testing.T) {
 		`hx-post="/channels/10/messages"`,
 		`name="client_msg_id"`,
 		`crypto.randomUUID`,
-		`hx-on::config-request`,
+		// htmx 4のイベント名です。旧名(config-request)のままだとハンドラが発火せず、
+		// 冪等キーが空のまま送られて400になります
+		`hx-on::config:request`,
+		`event.detail.ctx.request.body.set('client_msg_id'`,
+		`hx-on::after:request`,
+		// 送信中に編集した下書きを先行送信の成功応答で消さないため、送ったキーと
+		// フォームの現在値が一致するときだけreset()します
+		`this.dataset.sentKey = f.value`,
+		`this.dataset.sentKey === this.elements.client_msg_id.value`,
 		// form.reset()はhidden入力を戻さないため、成功時の明示クリアが必須です
 		`this.elements.client_msg_id.value = ''`,
 		// 本文編集時はキーを破棄し、次の送信を新規メッセージとして扱います
 		`oninput="this.form.elements.client_msg_id.value = ''"`,
+		// WS接続はhx-ws拡張の属性名で配線します。ws-connectは警告付きの互換にすぎません
+		`hx-ws:connect="/ws?channel_ids=`,
+		// 4xx/5xxの本文を一覧へ差し込まない2系の挙動を維持します
+		`"noSwap"`,
 		// 履歴読み込みUIの配線も実ページに存在することを固定します
 		`過去のメッセージを読み込む`,
 		`hx-swap="afterbegin"`,
